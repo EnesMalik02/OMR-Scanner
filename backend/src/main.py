@@ -329,7 +329,7 @@ async def process_form(
             answers[str(q_no)] = marked_option
         
         # Analizin görsel halini backend sunucusunda `debug_omr_output.jpg` adıyla kaydet
-        cv2.imwrite("debug_omr_output.jpg", debug_img)
+        # cv2.imwrite("debug_omr_output.jpg", debug_img)
 
         return {
             "status": "success",
