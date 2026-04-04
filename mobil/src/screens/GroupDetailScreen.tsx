@@ -7,6 +7,7 @@ import ImagePicker from 'react-native-image-crop-picker';
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import { API_BASE_URL } from '../api/omrApi';
+import * as XLSX from 'xlsx';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GroupDetail'>;
 
@@ -54,7 +55,6 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
       compressImageMaxHeight: 1600,
       mediaType: 'photo'
     }).then(image => {
-      // route parametresindeki exam alanına group yolluyoruz
       navigation.navigate('ScanResult', { exam: group as any, imageUri: image.path });
     }).catch(e => {
       if (e.message !== 'User cancelled image selection') {
@@ -95,6 +95,67 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
     }
   };
 
+  const handleExportExcel = async () => {
+    try {
+      if (!group.results || group.results.length === 0) {
+        Alert.alert('Uyarı', 'Dışa aktarılacak sonuç bulunmuyor.');
+        return;
+      }
+
+      // Build Excel data
+      const data = group.results.map((res: any, index: number) => ({
+        'Sıra': index + 1,
+        'Öğrenci Adı': res.name || 'Bilinmeyen',
+        'Öğrenci No': res.studentNumber || 'Belirtilmemiş',
+        'Doğru Sayısı': res.correct,
+        'Yanlış Sayısı': res.wrong,
+        'Boş Sayısı': res.blank,
+        'Puan (100 üzerinden)': ((res.correct / (group.questionCount || 1)) * 100).toFixed(2),
+      }));
+
+      // Create workbook
+      const ws = XLSX.utils.json_to_sheet(data);
+      
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 6 },   // Sıra
+        { wch: 25 },  // Öğrenci Adı
+        { wch: 15 },  // Öğrenci No
+        { wch: 14 },  // Doğru
+        { wch: 14 },  // Yanlış
+        { wch: 12 },  // Boş
+        { wch: 20 },  // Puan
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, group.name);
+
+      // Write xlsx file
+      const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+      
+      const dirs = ReactNativeBlobUtil.fs.dirs;
+      const fileName = `${group.name.replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ ]/g, '_')}_sonuclari.xlsx`;
+      const filePath = `${dirs.DownloadDir}/${fileName}`;
+
+      await ReactNativeBlobUtil.fs.writeFile(filePath, wbout, 'base64');
+
+      if (Platform.OS === 'android') {
+        ReactNativeBlobUtil.android.actionViewIntent(
+          filePath,
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        );
+      }
+
+      Alert.alert('Başarılı', `Excel dosyası kaydedildi:\n${fileName}`);
+    } catch (e: any) {
+      Alert.alert('Hata', e.message || 'Excel dosyası oluşturulamadı.');
+    }
+  };
+
+  const handleResultPress = (resultId: string) => {
+    navigation.navigate('ResultDetail', { groupId: group.id, resultId });
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
       <View style={styles.card}>
@@ -128,23 +189,44 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
       </View>
 
       <View style={styles.resultsContainer}>
-        <Text style={styles.sectionTitle}>Tarama Sonuçları</Text>
+        <View style={styles.resultsTitleRow}>
+          <Text style={styles.sectionTitle}>Tarama Sonuçları</Text>
+          {group.results && group.results.length > 0 && (
+            <TouchableOpacity style={styles.exportBtn} onPress={handleExportExcel}>
+              <Text style={styles.exportBtnText}>📊 Excel</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
         {(!group.results || group.results.length === 0) ? (
           <Text style={styles.emptyResults}>Henüz form taranmamış.</Text>
         ) : (
-          group.results.map((res: any, index: number) => (
-            <View key={res.id || index} style={styles.resultItem}>
-              <View style={styles.resultInfo}>
-                <Text style={styles.resultName}>{res.name}</Text>
-                <Text style={styles.resultNo}>No: {res.studentNumber || 'Belirtilmemiş'}</Text>
-              </View>
-              <View style={styles.resultStatsRow}>
-                <Text style={[styles.statText, { color: 'green' }]}>{res.correct}D</Text>
-                <Text style={[styles.statText, { color: 'red' }]}>{res.wrong}Y</Text>
-                <Text style={[styles.statText, { color: 'gray' }]}>{res.blank}B</Text>
-              </View>
-            </View>
-          ))
+          group.results.map((res: any, index: number) => {
+            const score = parseFloat(((res.correct / (group.questionCount || 1)) * 100).toFixed(2));
+
+            return (
+              <TouchableOpacity
+                key={res.id || index}
+                style={styles.resultItem}
+                onPress={() => handleResultPress(res.id)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.resultInfo}>
+                  <Text style={styles.resultName}>{res.name}</Text>
+                  <Text style={styles.resultNo}>No: {res.studentNumber || 'Belirtilmemiş'}</Text>
+                </View>
+                <View style={styles.resultRight}>
+                  <View style={styles.resultStatsRow}>
+                    <Text style={[styles.statText, { color: '#16a34a' }]}>{res.correct}D</Text>
+                    <Text style={[styles.statText, { color: '#dc2626' }]}>{res.wrong}Y</Text>
+                    <Text style={[styles.statText, { color: '#9ca3af' }]}>{res.blank}B</Text>
+                  </View>
+                  <Text style={styles.scoreText}>{score.toFixed(2)} puan</Text>
+                </View>
+                <Text style={styles.chevron}>›</Text>
+              </TouchableOpacity>
+            );
+          })
         )}
       </View>
     </ScrollView>
@@ -167,12 +249,34 @@ const styles = StyleSheet.create({
   downloadText: { color: '#f4511e', fontWeight: 'bold', fontSize: 16 },
   emptyText: { textAlign: 'center', color: '#999', marginTop: 40, fontSize: 16 },
   resultsContainer: { marginTop: 20, paddingHorizontal: 4 },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 12 },
+  resultsTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
+  exportBtn: {
+    backgroundColor: '#16a34a',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  exportBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 13 },
   emptyResults: { color: '#888', fontStyle: 'italic' },
-  resultItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: 14, borderRadius: 10, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
+  resultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 14,
+    borderRadius: 10,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
   resultInfo: { flex: 1 },
   resultName: { fontSize: 16, fontWeight: 'bold', color: '#333' },
   resultNo: { fontSize: 14, color: '#666', marginTop: 2 },
-  resultStatsRow: { flexDirection: 'row', gap: 12 },
-  statText: { fontSize: 15, fontWeight: 'bold' }
+  resultRight: { alignItems: 'flex-end', marginRight: 8 },
+  resultStatsRow: { flexDirection: 'row', gap: 10 },
+  statText: { fontSize: 14, fontWeight: 'bold' },
+  scoreText: { fontSize: 13, color: '#2563eb', fontWeight: '600', marginTop: 4 },
+  chevron: { fontSize: 22, color: '#ccc', fontWeight: 'bold' },
 });

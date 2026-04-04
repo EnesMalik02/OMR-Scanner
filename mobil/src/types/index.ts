@@ -5,6 +5,8 @@ export interface StudentResult {
   correct: number;
   wrong: number;
   blank: number;
+  score: number; // 100 üzerinden puan
+  answers: Record<string, string>; // öğrencinin cevapları
   scannedAt: number;
 }
 
@@ -47,3 +49,6 @@ export interface ScanResult {
   metadata: any;
   error?: string;
 }
+
+// Exam type alias for navigation compatibility
+export type Exam = Group;
