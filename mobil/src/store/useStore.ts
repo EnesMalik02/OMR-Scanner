@@ -13,6 +13,7 @@ interface StoreState {
   updateAnswerKey: (groupId: string, answerKey: Record<string, string>) => void;
   addStudentResult: (groupId: string, result: any) => void;
   updateStudentResult: (groupId: string, resultId: string, result: any) => void;
+  removeStudentResult: (groupId: string, resultId: string) => void;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -67,6 +68,18 @@ export const useStore = create<StoreState>()(
                 results: (g.results || []).map((r) =>
                   r.id === resultId ? { ...r, ...updatedData } : r
                 ),
+              }
+              : g
+          ),
+        })),
+
+      removeStudentResult: (groupId, resultId) =>
+        set((state) => ({
+          groups: state.groups.map((g) =>
+            g.id === groupId
+              ? {
+                ...g,
+                results: (g.results || []).filter((r) => r.id !== resultId),
               }
               : g
           ),

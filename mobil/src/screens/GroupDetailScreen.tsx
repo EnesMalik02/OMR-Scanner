@@ -223,7 +223,9 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
     navigation.navigate('ResultDetail', { groupId: group.id, resultId: res.id });
   };
 
-  const completedResults = (group.results || []).filter((r: any) => !r.pending);
+  const completedResults = (group.results || [])
+    .filter((r: any) => !r.pending)
+    .sort((a: any, b: any) => (b.scannedAt || 0) - (a.scannedAt || 0));
   const pendingResults = (group.results || []).filter((r: any) => r.pending);
   const hasAnswerKey = Object.keys(group.answerKey || {}).length > 0;
 
