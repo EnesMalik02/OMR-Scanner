@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, PermissionsAndroid, Platform, ScrollView, TextInput, Modal } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, PermissionsAndroid, Platform, ScrollView, TextInput, Modal, Animated, PanResponder, Dimensions } from 'react-native';
 import { useStore } from '../store/useStore';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -11,9 +11,85 @@ import * as XLSX from 'xlsx';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GroupDetail'>;
 
+const SCREEN_WIDTH = Dimensions.get('window').width;
+
+const SwipeableResultItem = ({ res, score, onPress, onDelete }: { res: any, score: number, onPress: () => void, onDelete: () => void }) => {
+  const [swipeAnim] = useState(new Animated.Value(0));
+
+  const panResponder = PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (evt, gestureState) => {
+      return Math.abs(gestureState.dx) > 20 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+    },
+    onPanResponderMove: (evt, gestureState) => {
+      if (gestureState.dx < 0) {
+        swipeAnim.setValue(gestureState.dx);
+      }
+    },
+    onPanResponderRelease: (evt, gestureState) => {
+      if (gestureState.dx < -SCREEN_WIDTH * 0.3) {
+        // Threshold passed, delete
+        Animated.timing(swipeAnim, {
+          toValue: -SCREEN_WIDTH,
+          duration: 200,
+          useNativeDriver: true,
+        }).start(() => {
+          onDelete();
+        });
+      } else {
+        // Reset
+        Animated.spring(swipeAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+        }).start();
+      }
+    },
+  });
+
+  return (
+    <View style={styles.swipeContainer}>
+      <View style={styles.deleteBackground}>
+        <Text style={styles.deleteText}>Sil</Text>
+      </View>
+      <Animated.View
+        style={{ transform: [{ translateX: swipeAnim }] }}
+        {...panResponder.panHandlers}
+      >
+        <TouchableOpacity
+          style={styles.resultCard}
+          onPress={onPress}
+          activeOpacity={0.7}
+        >
+          <View style={styles.resultLeft}>
+            <View style={styles.resultAvatar}>
+              <Text style={styles.resultAvatarText}>
+                {(res.name || '?')[0].toUpperCase()}
+              </Text>
+            </View>
+            <View style={styles.resultInfo}>
+              <Text style={styles.resultName} numberOfLines={1}>{res.name}</Text>
+              <Text style={styles.resultNo}>No: {res.studentNumber || 'Belirtilmemiş'}</Text>
+            </View>
+          </View>
+
+          <View style={styles.resultRight}>
+            <View style={styles.resultStats}>
+              <Text style={styles.statCorrect}>{res.correct}D</Text>
+              <Text style={styles.statWrong}>{res.wrong}Y</Text>
+              <Text style={styles.statBlank}>{res.blank}B</Text>
+            </View>
+            <Text style={styles.resultScore}>{score.toFixed(2)}</Text>
+          </View>
+          <Text style={styles.chevron}>›</Text>
+        </TouchableOpacity>
+      </Animated.View>
+    </View>
+  );
+};
+
 export const GroupDetailScreen = ({ route, navigation }: Props) => {
   const { groupId } = route.params;
-  const { groups, addStudentResult, updateStudentResult } = useStore();
+  const { groups, addStudentResult, updateStudentResult, removeStudentResult } = useStore();
 
   const group = groups.find(g => g.id === groupId);
 
@@ -320,35 +396,13 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
             const score = parseFloat(((res.correct / (group.questionCount || 1)) * 100).toFixed(2));
 
             return (
-              <TouchableOpacity
+              <SwipeableResultItem
                 key={res.id || index}
-                style={styles.resultCard}
+                res={res}
+                score={score}
                 onPress={() => handleResultPress(res)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.resultLeft}>
-                  <View style={styles.resultAvatar}>
-                    <Text style={styles.resultAvatarText}>
-                      {(res.name || '?')[0].toUpperCase()}
-                    </Text>
-                  </View>
-                  <View style={styles.resultInfo}>
-                    <Text style={styles.resultName} numberOfLines={1}>{res.name}</Text>
-                    <Text style={styles.resultNo}>No: {res.studentNumber || 'Belirtilmemiş'}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.resultRight}>
-                  <View style={styles.resultStats}>
-                    <Text style={styles.statCorrect}>{res.correct}D</Text>
-                    <Text style={styles.statWrong}>{res.wrong}Y</Text>
-                    <Text style={styles.statBlank}>{res.blank}B</Text>
-                  </View>
-                  <Text style={styles.resultScore}>{score.toFixed(2)}</Text>
-                </View>
-
-                <Text style={styles.chevron}>›</Text>
-              </TouchableOpacity>
+                onDelete={() => removeStudentResult(group.id, res.id)}
+              />
             );
           })
         )}
@@ -510,4 +564,26 @@ const styles = StyleSheet.create({
   emptyResultsIcon: { fontSize: 36, marginBottom: 10 },
   emptyResultsText: { fontSize: 16, fontWeight: '600', color: '#6b7280' },
   emptyResultsSubtext: { fontSize: 13, color: '#9ca3af', marginTop: 4 },
+
+  // Swipeable
+  swipeContainer: {
+    marginBottom: 10,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  deleteBackground: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#dc2626',
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingRight: 20,
+    borderRadius: 14,
+  },
+  deleteText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
 });
