@@ -1,0 +1,14 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "easyocr>=1.7.2",
+    "fastapi>=0.135.3",
+    "numpy>=2.4.4",
+    "opencv-python>=4.13.0.92",
+    "python-multipart>=0.0.22",
+    "uvicorn>=0.43.0",
+]
