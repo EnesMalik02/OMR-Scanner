@@ -3,6 +3,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 import io
 import cv2
 import numpy as np
+from PIL import Image
+import pytesseract
 
 app = FastAPI(title="OMR Backend API", description="SaaS tabanlı Optik Okuyucu Backend'i")
 
@@ -263,14 +265,25 @@ async def process_form(
             fw = int(field["w"] * maxWidth)
             fh = int(field["h"] * maxHeight)
             
-            # Yazı olan bölgeyi kes 
+            # Yazı olan bölgeyi kes
             field_crop = warped_gray[fy:fy+fh, fx:fx+fw]
-            # Kontrastı artırmak okumayı iyileştirebilir
+            # Kontrastı artır ve gürültüyü temizle
+            field_crop = cv2.resize(field_crop, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
             _, field_crop = cv2.threshold(field_crop, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            
-            # NOT: Render'da 512 MB belleği aşmamak için Ağır Yapay Zeka (EasyOCR) kaldırıldı.
-            text = "Belirtilmemiş (Kamera Okuması Kapalı)"
-            student_info[field["name"]] = text.strip()
+
+            # Tesseract ile OCR (hafif, native binary — ML modeli yok)
+            pil_img = Image.fromarray(field_crop)
+            try:
+                text = pytesseract.image_to_string(
+                    pil_img,
+                    lang="tur+eng",
+                    config="--psm 7 --oem 1"
+                ).strip()
+            except Exception:
+                text = ""
+            if not text:
+                text = "Okunamadı"
+            student_info[field["name"]] = text
 
             # DEBUG ÇİZİMİ: Text alanlarını mavi kutuya al ve okunan metni yaz
             cv2.rectangle(debug_img, (fx, fy), (fx+fw, fy+fh), (255, 0, 0), 2)
