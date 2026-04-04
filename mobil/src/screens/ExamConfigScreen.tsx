@@ -1,40 +1,29 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, FlatList, StyleSheet } from 'react-native';
 import { useStore } from '../store/useStore';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { fetchSchema } from '../api/omrApi';
-import { BackendSchema } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ExamConfig'>;
+
+const CHOICE_LABELS = ['A', 'B', 'C', 'D', 'E'];
 
 export const ExamConfigScreen = ({ route, navigation }: Props) => {
   const { exam } = route.params;
   const { updateAnswerKey } = useStore();
   
-  const [schema, setSchema] = useState<BackendSchema | null>(null);
-  const [loading, setLoading] = useState(true);
   const [localAnswers, setLocalAnswers] = useState<Record<string, string>>(exam.answerKey || {});
 
-  useEffect(() => {
-    loadSchema();
-  }, []);
-
-  const loadSchema = async () => {
-    try {
-      const data = await fetchSchema(exam.questionCount);
-      setSchema(data);
-    } catch (e) {
-      Alert.alert('Bağlantı Hatası', 'Şema yüklenemedi. Backend çalışıyor mu? (http://127.0.0.1:8000)');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Backend çağrısına gerek kalmadan soru ve şıkları doğrudan dinamik oluşturuyoruz
+  const questions = Array.from({ length: exam.questionCount || 20 }, (_, i) => ({
+    q_no: i + 1,
+    options: CHOICE_LABELS
+  }));
 
   const handleSelectOption = (qNo: string, val: string) => {
     setLocalAnswers(prev => ({
       ...prev,
-      [qNo]: prev[qNo] === val ? '' : val // Toggle off if clicked again
+      [qNo]: prev[qNo] === val ? '' : val // Butona tekrar basılırsa seçimi kaldır (Toggle off)
     }));
   };
 
@@ -43,36 +32,14 @@ export const ExamConfigScreen = ({ route, navigation }: Props) => {
     navigation.goBack();
   };
 
-  if (loading) {
-    return (
-      <View style={[styles.container, styles.centered]}>
-        <ActivityIndicator size="large" color="#f4511e" />
-        <Text style={{ marginTop: 10 }}>Şema Yükleniyor...</Text>
-      </View>
-    );
-  }
-
-  if (!schema) {
-    return (
-      <View style={[styles.container, styles.centered]}>
-        <Text>Şema yüklenemedi. Sınav yapısı oluşturulamıyor.</Text>
-        <TouchableOpacity style={[styles.saveButton, {marginTop: 20}]} onPress={loadSchema}>
-          <Text style={styles.saveButtonText}>Tekrar Dene</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
   const renderHeader = () => {
-    if (!schema || !schema.questions || schema.questions.length === 0) return null;
-    const firstQ = schema.questions[0];
     return (
       <View style={styles.optionsHeaderRow}>
         <View style={{ width: 30 }} />
         <View style={styles.optionsContainer}>
-          {firstQ.options.map((opt: any) => (
-            <View key={opt.val} style={styles.optionHeaderBubble}>
-              <Text style={styles.optionHeaderText}>{opt.val}</Text>
+          {CHOICE_LABELS.map((val) => (
+            <View key={val} style={styles.optionHeaderBubble}>
+              <Text style={styles.optionHeaderText}>{val}</Text>
             </View>
           ))}
         </View>
@@ -88,13 +55,13 @@ export const ExamConfigScreen = ({ route, navigation }: Props) => {
       <View style={styles.questionRow}>
         <Text style={styles.questionNo}>{item.q_no}.</Text>
         <View style={styles.optionsContainer}>
-          {item.options.map((opt: any) => {
-            const isSelected = selectedVal === opt.val;
+          {item.options.map((val: string) => {
+            const isSelected = selectedVal === val;
             return (
               <TouchableOpacity
-                key={opt.val}
+                key={val}
                 style={[styles.optionBubble, isSelected && styles.optionSelected]}
-                onPress={() => handleSelectOption(qNoStr, opt.val)}
+                onPress={() => handleSelectOption(qNoStr, val)}
               />
             );
           })}
@@ -106,7 +73,7 @@ export const ExamConfigScreen = ({ route, navigation }: Props) => {
   return (
     <View style={styles.container}>
       <FlatList
-        data={schema.questions}
+        data={questions}
         keyExtractor={item => item.q_no.toString()}
         renderItem={renderQuestionRow}
         contentContainerStyle={styles.listContainer}
