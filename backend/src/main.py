@@ -1,10 +1,69 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse, StreamingResponse
 import io
+import re
 import cv2
 import numpy as np
 from PIL import Image
 import pytesseract
+
+
+def _ocr_lang() -> str:
+    """Tesseract'ta tur paketi varsa tur+eng, yoksa eng döndür."""
+    try:
+        return "tur+eng" if "tur" in pytesseract.get_languages(config="") else "eng"
+    except Exception:
+        return "eng"
+
+
+def _ocr_field(crop_gray: np.ndarray, lang: str) -> str:
+    """
+    Tek alan için sağlam OCR.
+    • Görüntü temiz beyaz kenarlıkla çerçevelenir.
+    • 3× büyütülür.
+    • Karanlık zemin varsa otomatik tersine çevrilir (OTSU bazen inverse üretir).
+    • Ham gri + OTSU binarize × psm 7/13 = 4 kombinasyon denenir.
+    • En çok alfanümerik karakter içeren sonuç döndürülür.
+    • Gürültü karakterler (parantez, boru, ok vs.) temizlenir.
+    """
+    # Beyaz kenarlık ekle — Tesseract kenar piksellerinden etkilenmesin
+    bordered = cv2.copyMakeBorder(crop_gray, 20, 20, 20, 20,
+                                  cv2.BORDER_CONSTANT, value=255)
+    # 3× upscale
+    up = cv2.resize(bordered, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+
+    # Görüntü çoğunlukla karanlıksa (ters warp artefaktı) tersine çevir
+    if np.mean(up) < 127:
+        up = cv2.bitwise_not(up)
+
+    _, bin_otsu = cv2.threshold(up, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    best, best_score = "", 0
+    for img in (up, bin_otsu):
+        pil = Image.fromarray(img)
+        for psm in (7, 13):
+            try:
+                raw = pytesseract.image_to_string(
+                    pil, lang=lang, config=f"--psm {psm} --oem 3"
+                )
+            except Exception:
+                continue
+
+            # Sadece alfanümerik + boşluk + Türkçe karakterler tut
+            cleaned = re.sub(
+                r"[^a-zA-Z0-9\s"
+                r"ğüşıöçĞÜŞİÖÇ"
+                r"\.\,\-\_\/]",
+                "", raw
+            ).strip()
+            # Birden fazla boşluğu tek boşluğa indir
+            cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+            score = sum(1 for c in cleaned if c.isalnum())
+            if score > best_score:
+                best_score, best = score, cleaned
+
+    return best if best_score >= 1 else "Okunamadı"
 
 app = FastAPI(title="OMR Backend API", description="SaaS tabanlı Optik Okuyucu Backend'i")
 
@@ -91,8 +150,8 @@ async def generate_form(question_count: int = 30):
     width, height = 1000, 1400
     img = np.ones((height, width, 3), dtype="uint8") * 255
     
-    # 1. Anchors (Siyah Köşeler) - Her biri için 40x40 boyutunda kare çizelim
-    anchor_size = 40
+    # 1. Anchors - 20x20 px kare (40x40 toplam)
+    anchor_size = 20
     for anchor in schema["anchors"]:
         cx = int(anchor["x"] * width)
         cy = int(anchor["y"] * height)
@@ -182,71 +241,131 @@ async def process_form(
             return JSONResponse(status_code=400, content={"error": "Geçersiz resim formatı."})
 
         # --- Görüntü İşleme Büyüsü ---
-        
-        # A. Preprocessing & Anchor Detection
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        # Adaptif eşikleme (aydınlatma dalgalanmalarına karşı dirençli OTSU)
-        _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        
-        # Kağıt sınırının içindekileri de bulmak için RETR_EXTERNAL yerine RETR_LIST
-        contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        
-        possible_anchors = []
-        for c in contours:
-            area = cv2.contourArea(c)
-            # Siyah kareler belli bir büyüklükte olmalı
-            if 100 < area < 50000:
-                x, y, w, h = cv2.boundingRect(c)
-                aspect_ratio = float(w) / h
-                solidity = area / float(w * h)
-                
-                # Kareye benzeyen ve içi dolu nesneleri filtrele
-                if 0.5 <= aspect_ratio <= 1.5 and solidity > 0.7:
-                    possible_anchors.append(c)
-
-        # Alanı en büyük olanları anchor adayı yapalım (6 tane var ama ortam tozları olursa diye en büyük 10'u alırız)
-        possible_anchors = sorted(possible_anchors, key=cv2.contourArea, reverse=True)[:10]
-        
-        if len(possible_anchors) < 4:
-            return JSONResponse(
-                status_code=400, 
-                content={"error": f"Yeterli referans noktası (Yalnızca {len(possible_anchors)} adet) bulunamadı. Form tamamen karanlık, gölgeli veya çok uzak olabilir. Ayrıca kağıt uçlarının görünür olduğundan emin olun."}
-            )
-
-        # Anchorların merkezlerini hesapla
-        anchor_centers = []
-        for c in possible_anchors:
-            M_c = cv2.moments(c)
-            if M_c["m00"] != 0:
-                cx = int(M_c["m10"] / M_c["m00"])
-                cy = int(M_c["m01"] / M_c["m00"])
-            else:
-                x, y, w, h = cv2.boundingRect(c)
-                cx, cy = x + w//2, y + h//2
-            anchor_centers.append([cx, cy])
-            
-        src_pts = order_points(np.array(anchor_centers, dtype="float32"))
-        
         schema = await get_schema(question_count)
         maxWidth, maxHeight = 1000, 1400
-        
-        # Şemadaki anchor idleri sırasıyla: top_left, top_right, bottom_left, bottom_right 
-        # olarak schema'dan gelir. order_points fonksiyonu da TL, TR, BR, BL tarzı çıktı verir.
-        dst_pts = np.zeros((4, 2), dtype="float32")
-        for anchor in schema["anchors"]:
-            if anchor["id"] == "top_left":
-                dst_pts[0] = [int(anchor["x"] * maxWidth), int(anchor["y"] * maxHeight)]
-            elif anchor["id"] == "top_right":
-                dst_pts[1] = [int(anchor["x"] * maxWidth), int(anchor["y"] * maxHeight)]
-            elif anchor["id"] == "bottom_right":
-                dst_pts[2] = [int(anchor["x"] * maxWidth), int(anchor["y"] * maxHeight)]
-            elif anchor["id"] == "bottom_left":
-                dst_pts[3] = [int(anchor["x"] * maxWidth), int(anchor["y"] * maxHeight)]
-                
-        # B. Warping (Perspektif Düzeltme)
-        M_transform = cv2.getPerspectiveTransform(src_pts, dst_pts)
-        warped = cv2.warpPerspective(img, M_transform, (maxWidth, maxHeight), borderValue=(255,255,255))
+
+        # A. Preprocessing & Anchor Detection
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        img_h, img_w = img.shape[:2]
+        img_area = img_h * img_w
+
+        # Çoklu threshold yöntemiyle kare marker'ları bul
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        _, thresh_otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+        # Morfolojik kapama: kopuk kenarları birleştir
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        thresh = cv2.morphologyEx(thresh_otsu, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+        contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Kare/dikdörtgen ve içi dolu şekilleri filtrele — boyut görüntüye göre orantılı
+        raw_candidates = []
+        for c in contours:
+            area = cv2.contourArea(c)
+            if img_area * 0.00015 < area < img_area * 0.025:
+                bx, by, bw, bh = cv2.boundingRect(c)
+                aspect = float(bw) / bh
+                solidity = area / float(bw * bh)
+                if 0.45 <= aspect <= 2.2 and solidity > 0.60:
+                    raw_candidates.append((c, area))
+
+        # En büyük 20'yi al, sonra boyut tutarsızlarını ele
+        raw_candidates.sort(key=lambda x: x[1], reverse=True)
+        raw_candidates = raw_candidates[:20]
+
+        # Boyut tutarlılığı filtresi: medyan alanın 0.15x – 6x arasındakiler
+        if raw_candidates:
+            areas = [a for _, a in raw_candidates]
+            median_a = float(np.median(areas[:min(8, len(areas))]))
+            raw_candidates = [(c, a) for c, a in raw_candidates
+                              if median_a * 0.15 < a < median_a * 6.0]
+
+        anchor_candidates = [c for c, _ in raw_candidates]
+
+        if len(anchor_candidates) < 4:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Yeterli referans noktası ({len(anchor_candidates)} adet) bulunamadı. Formu iyi aydınlatılmış, düz bir zeminde çekin ve tüm köşe karelerinin görünür olduğundan emin olun."}
+            )
+
+        # Merkezleri hesapla
+        centers = []
+        for c in anchor_candidates:
+            M_c = cv2.moments(c)
+            if M_c["m00"] != 0:
+                cx_c = int(M_c["m10"] / M_c["m00"])
+                cy_c = int(M_c["m01"] / M_c["m00"])
+            else:
+                bx, by, bw, bh = cv2.boundingRect(c)
+                cx_c, cy_c = bx + bw // 2, by + bh // 2
+            centers.append([cx_c, cy_c])
+
+        # Sol/Sağ ayrımı: görüntü ortası yerine tüm adayların medyan-x'ini kullan
+        # (form köşeden çekilse bile sol/sağ karıştırılmaz)
+        med_x = float(np.median([p[0] for p in centers]))
+        left_pts  = sorted([p for p in centers if p[0] <  med_x], key=lambda p: p[1])
+        right_pts = sorted([p for p in centers if p[0] >= med_x], key=lambda p: p[1])
+
+        if len(left_pts) < 2 or len(right_pts) < 2:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Formun sol veya sağ tarafında yeterli marker bulunamadı. Tüm köşe karelerinin görünür olduğundan emin olun."}
+            )
+
+        def pick_column(pts, n=3):
+            """Sıralı noktalardan: en üst, en alt ve mid-y'ye en yakın olanı seç."""
+            if len(pts) <= n:
+                return pts[:n]
+            top    = pts[0]
+            bottom = pts[-1]
+            if n == 2:
+                return [top, bottom]
+            mid_y  = (top[1] + bottom[1]) / 2.0
+            middle = min(pts[1:-1], key=lambda p: abs(p[1] - mid_y))
+            return sorted([top, middle, bottom], key=lambda p: p[1])
+
+        schema_anchor_map = {a["id"]: a for a in schema["anchors"]}
+        use_6 = len(left_pts) >= 3 and len(right_pts) >= 3
+
+        if use_6:
+            tl, ml_pt, bl = pick_column(left_pts,  3)
+            tr, mr_pt, br = pick_column(right_pts, 3)
+
+            src_pts = np.array([tl, tr, mr_pt, br, bl, ml_pt], dtype="float32")
+            dst_pts = np.array([
+                [schema_anchor_map["top_left"]["x"]     * maxWidth, schema_anchor_map["top_left"]["y"]     * maxHeight],
+                [schema_anchor_map["top_right"]["x"]    * maxWidth, schema_anchor_map["top_right"]["y"]    * maxHeight],
+                [schema_anchor_map["middle_right"]["x"] * maxWidth, schema_anchor_map["middle_right"]["y"] * maxHeight],
+                [schema_anchor_map["bottom_right"]["x"] * maxWidth, schema_anchor_map["bottom_right"]["y"] * maxHeight],
+                [schema_anchor_map["bottom_left"]["x"]  * maxWidth, schema_anchor_map["bottom_left"]["y"]  * maxHeight],
+                [schema_anchor_map["middle_left"]["x"]  * maxWidth, schema_anchor_map["middle_left"]["y"]  * maxHeight],
+            ], dtype="float32")
+
+            H, hmask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+            if H is None:
+                return JSONResponse(status_code=400, content={"error": "Perspektif düzeltme matrisi hesaplanamadı."})
+        else:
+            tl, bl = left_pts[0],  left_pts[-1]
+            tr, br = right_pts[0], right_pts[-1]
+
+            src_pts = np.array([tl, tr, br, bl], dtype="float32")
+            dst_pts = np.array([
+                [schema_anchor_map["top_left"]["x"]     * maxWidth, schema_anchor_map["top_left"]["y"]     * maxHeight],
+                [schema_anchor_map["top_right"]["x"]    * maxWidth, schema_anchor_map["top_right"]["y"]    * maxHeight],
+                [schema_anchor_map["bottom_right"]["x"] * maxWidth, schema_anchor_map["bottom_right"]["y"] * maxHeight],
+                [schema_anchor_map["bottom_left"]["x"]  * maxWidth, schema_anchor_map["bottom_left"]["y"]  * maxHeight],
+            ], dtype="float32")
+
+            H = cv2.getPerspectiveTransform(src_pts, dst_pts)
+
+        # B. Warping — detected anchor'ları da debug için orijinal görüntü üzerine çiz
+        debug_raw = img.copy()
+        for p in centers:
+            cv2.circle(debug_raw, (p[0], p[1]), 10, (0, 0, 255), -1)
+        # cv2.imwrite("debug_anchors_raw.jpg", debug_raw)
+
+        warped = cv2.warpPerspective(img, H, (maxWidth, maxHeight), borderValue=(255, 255, 255))
         warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
         
         # OMR İçin Hassas Eşikleme (Soru/Şık kabarcıklarını ayıklamak için)
@@ -257,37 +376,33 @@ async def process_form(
         # GÖRSEL HATA AYIKLAMA İÇİN KOPYA OLUŞTUR
         debug_img = warped.copy()
 
+        # Beklenen anchor konumlarını yeşil çemberle işaretle (warp doğruysa tam üstüne gelmeli)
+        for anchor in schema["anchors"]:
+            ax = int(anchor["x"] * maxWidth)
+            ay = int(anchor["y"] * maxHeight)
+            cv2.circle(debug_img, (ax, ay), 18, (0, 200, 0), 3)
+            cv2.putText(debug_img, anchor["id"][:2], (ax + 20, ay + 6),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 180, 0), 1)
+
         # C. OCR Analizi (Öğrenci Bilgilerini Okuma)
+        ocr_lang = _ocr_lang()
         student_info = {}
         for field in schema["fields"]:
             fx = int(field["x"] * maxWidth)
             fy = int(field["y"] * maxHeight)
             fw = int(field["w"] * maxWidth)
             fh = int(field["h"] * maxHeight)
-            
-            # Yazı olan bölgeyi kes
-            field_crop = warped_gray[fy:fy+fh, fx:fx+fw]
-            # Kontrastı artır ve gürültüyü temizle
-            field_crop = cv2.resize(field_crop, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-            _, field_crop = cv2.threshold(field_crop, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-            # Tesseract ile OCR (hafif, native binary — ML modeli yok)
-            pil_img = Image.fromarray(field_crop)
-            try:
-                text = pytesseract.image_to_string(
-                    pil_img,
-                    lang="tur+eng",
-                    config="--psm 7 --oem 1"
-                ).strip()
-            except Exception:
-                text = ""
-            if not text:
-                text = "Okunamadı"
+            # Formun kendi siyah kenarlığını (2px) atlayarak iç alanı kes
+            inset = 3
+            field_crop = warped_gray[fy + inset:fy + fh - inset,
+                                     fx + inset:fx + fw - inset]
+            text = _ocr_field(field_crop, ocr_lang)
             student_info[field["name"]] = text
 
-            # DEBUG ÇİZİMİ: Text alanlarını mavi kutuya al ve okunan metni yaz
-            cv2.rectangle(debug_img, (fx, fy), (fx+fw, fy+fh), (255, 0, 0), 2)
-            cv2.putText(debug_img, text.strip(), (fx, fy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+            cv2.rectangle(debug_img, (fx, fy), (fx + fw, fy + fh), (255, 0, 0), 2)
+            cv2.putText(debug_img, text[:40], (fx, fy - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
 
         # D. OMR (Optik Okuma) Analizi
         questions = schema["questions"]
@@ -299,51 +414,40 @@ async def process_form(
         for q in questions:
             q_no = q["q_no"]
             options = q["options"]
-            
-            marked_option = None
-            max_filled_ratio = 0
-            
+
+            marked_options = []  # Birden fazla işaretli şık desteklenir
+
             for opt in options:
                 val = opt["val"]
-                
-                # Koordinatları piksele çevir
+
                 bx = int(opt["x"] * maxWidth)
                 by = int(opt["y"] * maxHeight)
-                
-                # Yalnızca çemberin iç kısmını analiz etmek için yarıçapı küçült (sınır çizgilerini yoksay)
-                inner_radius = int(bubble_radius_px * 0.8)
-                if inner_radius < 1:
-                    inner_radius = 1
+
+                inner_radius = max(int(bubble_radius_px * 0.8), 1)
 
                 mask = np.zeros(omr_thresh.shape, dtype="uint8")
                 cv2.circle(mask, (bx, by), inner_radius, 255, -1)
-                
+
                 bubble_area = cv2.bitwise_and(omr_thresh, omr_thresh, mask=mask)
                 total_pixels = cv2.countNonZero(mask)
                 filled_pixels = cv2.countNonZero(bubble_area)
-                
+
                 if total_pixels > 0:
                     filled_ratio = filled_pixels / total_pixels
-                    
-                    if filled_ratio > max_filled_ratio:
-                        max_filled_ratio = filled_ratio
-                        # İçinin siyahlık oranı %48 barajı (Tolerans - Çember kalınlığını da içerdiği için 48 seçildi)
-                        if filled_ratio >= 0.48:
-                            marked_option = val
 
-                    # DEBUG ÇİZİMİ: Şıkların üstüne yuvarlak at ve siyahlık oranını yaz. %48'i geçeni yeşil göster.
+                    if filled_ratio >= 0.48:
+                        marked_options.append(val)
+
                     color = (0, 255, 0) if filled_ratio >= 0.48 else (0, 0, 255)
                     cv2.circle(debug_img, (bx, by), bubble_radius_px, color, 2)
-                    cv2.putText(debug_img, f"{filled_ratio:.2f}", (bx - 15, by - bubble_radius_px - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+                    cv2.putText(debug_img, f"{filled_ratio:.2f}", (bx - 15, by - bubble_radius_px - 5),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
 
-            # Eğer tüm şıklar boş veya şüpheliyse boş dönsün
-            if marked_option is None:
-                marked_option = ""
-
-            answers[str(q_no)] = marked_option
+            # Birden fazla işaret: "A,B" formatında; boşsa ""
+            answers[str(q_no)] = ",".join(marked_options)
         
         # Analizin görsel halini backend sunucusunda `debug_omr_output.jpg` adıyla kaydet
-        # cv2.imwrite("debug_omr_output.jpg", debug_img)
+        cv2.imwrite("debug_omr_output.jpg", debug_img)
 
         return {
             "status": "success",
