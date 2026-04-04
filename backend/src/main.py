@@ -4,12 +4,46 @@ import io
 import re
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import pytesseract
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Yardımcı: Türkçe destekli TrueType font
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _get_font(size: int):
+    """Türkçe karakterleri (Ö Ğ Ş İ Ü Ç) destekleyen sistem fontu döndürür."""
+    paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/Library/Fonts/Arial.ttf",
+    ]
+    for p in paths:
+        try:
+            return ImageFont.truetype(p, size)
+        except (IOError, OSError):
+            continue
+    return ImageFont.load_default()
+
+
+def _text_wh(font, text: str):
+    """Metnin (genişlik, yükseklik) piksel boyutunu döndürür."""
+    try:
+        b = font.getbbox(text)
+        return b[2] - b[0], b[3] - b[1]
+    except AttributeError:
+        return font.getsize(text)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Yardımcı: OCR dil seçimi ve alan okuma
+# ──────────────────────────────────────────────────────────────────────────────
+
 def _ocr_lang() -> str:
-    """Tesseract'ta tur paketi varsa tur+eng, yoksa eng döndür."""
     try:
         return "tur+eng" if "tur" in pytesseract.get_languages(config="") else "eng"
     except Exception:
@@ -17,30 +51,16 @@ def _ocr_lang() -> str:
 
 
 def _ocr_field(crop_gray: np.ndarray, lang: str) -> str:
-    """
-    Tek alan için sağlam OCR.
-    • Görüntü temiz beyaz kenarlıkla çerçevelenir.
-    • 3× büyütülür.
-    • Karanlık zemin varsa otomatik tersine çevrilir (OTSU bazen inverse üretir).
-    • Ham gri + OTSU binarize × psm 7/13 = 4 kombinasyon denenir.
-    • En çok alfanümerik karakter içeren sonuç döndürülür.
-    • Gürültü karakterler (parantez, boru, ok vs.) temizlenir.
-    """
-    # Beyaz kenarlık ekle — Tesseract kenar piksellerinden etkilenmesin
     bordered = cv2.copyMakeBorder(crop_gray, 20, 20, 20, 20,
                                   cv2.BORDER_CONSTANT, value=255)
-    # 3× upscale
     up = cv2.resize(bordered, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-
-    # Görüntü çoğunlukla karanlıksa (ters warp artefaktı) tersine çevir
     if np.mean(up) < 127:
         up = cv2.bitwise_not(up)
-
     _, bin_otsu = cv2.threshold(up, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
     best, best_score = "", 0
-    for img in (up, bin_otsu):
-        pil = Image.fromarray(img)
+    for img_try in (up, bin_otsu):
+        pil = Image.fromarray(img_try)
         for psm in (7, 13):
             try:
                 raw = pytesseract.image_to_string(
@@ -48,415 +68,469 @@ def _ocr_field(crop_gray: np.ndarray, lang: str) -> str:
                 )
             except Exception:
                 continue
-
-            # Sadece alfanümerik + boşluk + Türkçe karakterler tut
             cleaned = re.sub(
-                r"[^a-zA-Z0-9\s"
-                r"ğüşıöçĞÜŞİÖÇ"
-                r"\.\,\-\_\/]",
-                "", raw
+                r"[^a-zA-Z0-9\sğüşıöçĞÜŞİÖÇ\.\,\-\_\/]", "", raw
             ).strip()
-            # Birden fazla boşluğu tek boşluğa indir
             cleaned = re.sub(r"\s+", " ", cleaned).strip()
-
             score = sum(1 for c in cleaned if c.isalnum())
             if score > best_score:
                 best_score, best = score, cleaned
 
     return best if best_score >= 1 else "Okunamadı"
 
+
+# ──────────────────────────────────────────────────────────────────────────────
 app = FastAPI(title="OMR Backend API", description="SaaS tabanlı Optik Okuyucu Backend'i")
 
+
+# ──────────────────────────────────────────────────────────────────────────────
 # 1. Şema Endpoint'i
+# ──────────────────────────────────────────────────────────────────────────────
+
 @app.get("/schema")
 async def get_schema(question_count: int = 20):
     """
-    Mobil uygulamanın ekranında formu nasıl çizeceğini söyler.
-    Koordinatlar (x, y, w, h) yüzdelik dilimler (0.0 - 1.0) arasındadır.
-    Mobil cihazın genişlik ve yüksekliği ile çarpılarak çizim yapılabilir.
+    Form düzenini tanımlar.
+    Tüm koordinatlar 0.0–1.0 arası oransal değerlerdir.
+
+    Üst bölüm düzeni (1000×1400 px formda):
+      Sol  → İsim (OCR kutusu)          x: 0.14–0.50,  y: ~0.08
+      Sağ  → Öğrenci Numarası (9×OMR)   x: 0.530–0.908, y: ~0.069–0.228
+      ─────────────────────── ayırıcı çizgi ──────────────  y: 0.250
+      Sorular                            y: 0.28 →
     """
     questions = []
     options_labels = ["A", "B", "C", "D", "E"]
-    
-    start_y = 0.28
-    y_step = 0.03
-    base_x = 0.15
+
+    start_y    = 0.28
+    y_step     = 0.03
+    base_x     = 0.15
     opt_x_step = 0.05
-    
+
     current_y = start_y
     for i in range(1, question_count + 1):
         if current_y > 0.88:
-            # Kağıdın altına çok yaklaştıysa ikinci / sonraki sütuna geç
             current_y = start_y
-            base_x += 0.40 # X eksenini sağa kaydır
-            
-        options = []
-        for j, val in enumerate(options_labels):
-            options.append({
-                "val": val,
-                "x": round(base_x + j * opt_x_step, 3),
-                "y": round(current_y, 3)
-            })
-            
-        questions.append({
-            "q_no": i,
-            "options": options
-        })
-        
+            base_x   += 0.40
+        options = [
+            {"val": val, "x": round(base_x + j * opt_x_step, 3), "y": round(current_y, 3)}
+            for j, val in enumerate(options_labels)
+        ]
+        questions.append({"q_no": i, "options": options})
         current_y += y_step
 
     return {
-        "template_id": "zipgrade_20_v1",
-        "base_aspect_ratio": 0.71, # Genişlik / Yükseklik (A4 oranı)
+        "template_id": "omr_v2",
+        "base_aspect_ratio": 0.71,
         "anchors": [
-            {"id": "top_left", "x": 0.05, "y": 0.05},
-            {"id": "middle_left", "x": 0.05, "y": 0.50},
-            {"id": "bottom_left", "x": 0.05, "y": 0.95},
-            {"id": "top_right", "x": 0.95, "y": 0.05},
+            {"id": "top_left",     "x": 0.05, "y": 0.05},
+            {"id": "middle_left",  "x": 0.05, "y": 0.50},
+            {"id": "bottom_left",  "x": 0.05, "y": 0.95},
+            {"id": "top_right",    "x": 0.95, "y": 0.05},
             {"id": "middle_right", "x": 0.95, "y": 0.50},
-            {"id": "bottom_right", "x": 0.95, "y": 0.95}
+            {"id": "bottom_right", "x": 0.95, "y": 0.95},
         ],
+        # Sadece isim OCR ile okunur; öğrenci numarası artık OMR ile alınır
         "fields": [
-            {"name": "student_name", "label": "Name", "x": 0.3, "y": 0.09, "w": 0.5, "h": 0.045},
-            {"name": "student_number", "label": "Number", "x": 0.3, "y": 0.15, "w": 0.5, "h": 0.045}
+            {"name": "student_name", "label": "İsim", "x": 0.14, "y": 0.083, "w": 0.36, "h": 0.042}
         ],
+        # 9 basamaklı öğrenci numarası OMR grid'i — üst sağ bölge
+        # Her sütun = 1 mini-grid (üstte el yazısı kutusu + altta 0-9 daireler)
+        # Sütun merkezleri: x_start + col * x_step
+        # Köşe markerlarına değmez: sağ marker x=0.95 ± 0.02 → 0.930..0.970
+        #                           son sütun sağ kenarı = (0.551+8×0.042)+0.021 = 0.908 ✓
+        "student_number_grid": {
+            "label":          "Öğrenci Numarası",
+            "digit_count":    9,
+            "x_start":        0.551,   # ilk sütun merkezi
+            "x_step":         0.042,   # sütunlar arası mesafe
+            "col_half_w":     0.021,   # mini-grid yarı genişliği (x_step/2)
+            "y_label":        0.069,   # başlık metni y
+            "y_grid_top":     0.078,   # dikdörtgen üst kenarı
+            "y_box_bottom":   0.108,   # el yazısı kutu alt kenarı / ayırıcı çizgi
+            "y_circle_start": 0.117,   # satır-0 daire merkezi
+            "y_circle_step":  0.0114,  # satırlar arası (≈16 px)
+            "y_grid_bottom":  0.228,   # dikdörtgen alt kenarı
+            "bubble_radius":  0.010,   # daire yarıçapı oranı
+        },
+        "separator_y": 0.250,          # öğrenci bilgisi / soru bölgesi ayırıcısı
         "questions": questions,
         "metadata": {
             "total_questions": question_count,
-            "bubble_radius": 0.012 # Yuvarlakların tahmini yarıçap oranı
-        }
+            "bubble_radius": 0.012,
+        },
     }
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Yardımcı: perspektif düzeltme için nokta sıralaması
+# ──────────────────────────────────────────────────────────────────────────────
+
 def order_points(pts):
-    """
-    4 noktayı her zaman: [Sol-Üst, Sağ-Üst, Sağ-Alt, Sol-Alt] sırasında dizer.
-    """
     rect = np.zeros((4, 2), dtype="float32")
     s = pts.sum(axis=1)
     rect[0] = pts[np.argmin(s)]
     rect[2] = pts[np.argmax(s)]
-
     diff = np.diff(pts, axis=1)
     rect[1] = pts[np.argmin(diff)]
     rect[3] = pts[np.argmax(diff)]
     return rect
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 2. Form Üretme Endpoint'i
+# ──────────────────────────────────────────────────────────────────────────────
+
 @app.get("/generate_form")
-async def generate_form(question_count: int = 30):
-    """Dinamik olarak şemaya göre optik form çizer ve PNG olarak döndürür."""
+async def generate_form(question_count: int = 20):
+    """Şemaya göre optik form çizer ve PNG olarak döndürür."""
     schema = await get_schema(question_count)
-    
-    # 1000x1400 (base_aspect_ratio: 0.71) boyutlarında beyaz tuval
-    width, height = 1000, 1400
-    img = np.ones((height, width, 3), dtype="uint8") * 255
-    
-    # 1. Anchors - 20x20 px kare (40x40 toplam)
+    W, H   = 1000, 1400
+    img    = np.ones((H, W, 3), dtype="uint8") * 255
+
+    # ── A. Anchor marker kareleri ─────────────────────────────────────────────
     anchor_size = 20
-    for anchor in schema["anchors"]:
-        cx = int(anchor["x"] * width)
-        cy = int(anchor["y"] * height)
-        cv2.rectangle(img, (cx - anchor_size, cy - anchor_size), (cx + anchor_size, cy + anchor_size), (0, 0, 0), -1)
+    for a in schema["anchors"]:
+        cx, cy = int(a["x"] * W), int(a["y"] * H)
+        cv2.rectangle(img,
+                      (cx - anchor_size, cy - anchor_size),
+                      (cx + anchor_size, cy + anchor_size),
+                      (0, 0, 0), -1)
 
-    # 2. Fields (İsim, Numara vs. için içi boş dikdörtgenler)
+    # ── B. İsim OCR kutusu ────────────────────────────────────────────────────
     for field in schema["fields"]:
-        fx = int(field["x"] * width)
-        fy = int(field["y"] * height)
-        fw = int(field["w"] * width)
-        fh = int(field["h"] * height)
+        fx = int(field["x"] * W);  fy = int(field["y"] * H)
+        fw = int(field["w"] * W);  fh = int(field["h"] * H)
         cv2.rectangle(img, (fx, fy), (fx + fw, fy + fh), (0, 0, 0), 2)
-        
-        # Etiketleri kutunun soluna kısa bir şekilde yazıyoruz
-        label = field.get("label", field["name"])
-        text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)[0]
-        text_x = fx - text_size[0] - 15  # Kutunun hemen soluna (15px boşluk)
-        text_y = fy + (fh + text_size[1]) // 2
-        cv2.putText(img, label, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
 
-    # 3. Bubbles (Soru - Şıklar)
-    bubble_radius_ratio = schema["metadata"].get("bubble_radius", 0.012)
-    bubble_radius_px = int(width * bubble_radius_ratio)
+    # ── C. Öğrenci Numarası mini-grid dikdörtgenleri + daireler ──────────────
+    sn           = schema["student_number_grid"]
+    sn_dc        = sn["digit_count"]
+    sn_xs        = sn["x_start"]
+    sn_xstp      = sn["x_step"]
+    sn_chw       = sn["col_half_w"]
+    sn_y_gt      = int(sn["y_grid_top"]     * H)
+    sn_y_bd      = int(sn["y_box_bottom"]   * H)
+    sn_y_gb      = int(sn["y_grid_bottom"]  * H)
+    sn_y_cs      = sn["y_circle_start"]
+    sn_y_cst     = sn["y_circle_step"]
+    sn_br        = int(W * sn["bubble_radius"])
 
-    if schema["questions"]:
-        # Grup başlıkları (A B C D E vb.) her sütun için çizilsin
-        column_xs = set()
-        for q in schema["questions"]:
-            first_opt_x = int(q["options"][0]["x"] * width)
-            if first_opt_x not in column_xs:
-                column_xs.add(first_opt_x)
-                # Yeni bir sütun başlangıcı, A B C D E yazalım
-                for opt in q["options"]:
-                    cx = int(opt["x"] * width)
-                    # 2.5 yerine 1.8 ile yuvarlaklara daha yakın olup üst kısımdan (OCR bölümünden) uzaklaşır
-                    text_y = int(q["options"][0]["y"] * height) - int(bubble_radius_px * 1.8)
-                    text_size = cv2.getTextSize(opt["val"], cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
-                    text_x = cx - text_size[0] // 2
-                    cv2.putText(img, opt["val"], (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+    for col in range(sn_dc):
+        cx      = int((sn_xs + col * sn_xstp) * W)
+        col_l   = cx - int(sn_chw * W)
+        col_r   = cx + int(sn_chw * W)
+
+        # Sütun dış dikdörtgeni
+        cv2.rectangle(img, (col_l, sn_y_gt), (col_r, sn_y_gb), (0, 0, 0), 1)
+        # El yazısı kutusu alt çizgisi
+        cv2.line(img, (col_l, sn_y_bd), (col_r, sn_y_bd), (0, 0, 0), 1)
+
+        # 0–9 daireleri
+        for row in range(10):
+            cy = int((sn_y_cs + row * sn_y_cst) * H)
+            cv2.circle(img, (cx, cy), sn_br, (0, 0, 0), 1)
+
+    # ── D. Öğrenci bilgisi / soru bölgesi ayırıcı çizgisi ───────────────────
+    sep_y = int(schema["separator_y"] * H)
+    cv2.line(img, (int(0.05 * W), sep_y), (int(0.95 * W), sep_y), (0, 0, 0), 1)
+
+    # ── E. Soru başlıkları (A B C D E) ve balonlar ───────────────────────────
+    bub_r = int(W * schema["metadata"]["bubble_radius"])
+
+    col_header_drawn: set = set()
+    for q in schema["questions"]:
+        fo_x = int(q["options"][0]["x"] * W)
+        if fo_x not in col_header_drawn:
+            col_header_drawn.add(fo_x)
+            for opt in q["options"]:
+                ox = int(opt["x"] * W)
+                oy = int(q["options"][0]["y"] * H) - int(bub_r * 1.8)
+                ts = cv2.getTextSize(opt["val"], cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
+                cv2.putText(img, opt["val"], (ox - ts[0] // 2, oy),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
 
     for q in schema["questions"]:
-        q_no = q["q_no"]
-        
-        # Soru Numarasını en soldaki şıktan biraz daha sola çizelim
-        first_opt_x = int(q["options"][0]["x"] * width)
-        first_opt_y = int(q["options"][0]["y"] * height)
-        
-        q_text = f"{q_no}."
-        q_text_size = cv2.getTextSize(q_text, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)[0]
-        # Yuvarlağın 15px soluna sağa dayalı şekilde yerleştir
-        text_x = first_opt_x - bubble_radius_px - q_text_size[0] - 15
-        text_y = first_opt_y + (q_text_size[1] // 2)
-        cv2.putText(img, q_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
-
+        fo_x = int(q["options"][0]["x"] * W)
+        fo_y = int(q["options"][0]["y"] * H)
+        qt   = f"{q['q_no']}."
+        qts  = cv2.getTextSize(qt, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)[0]
+        cv2.putText(img, qt,
+                    (fo_x - bub_r - qts[0] - 15, fo_y + qts[1] // 2),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
         for opt in q["options"]:
-            cx = int(opt["x"] * width)
-            cy = int(opt["y"] * height)
-            
-            # Daireyi çiz
-            cv2.circle(img, (cx, cy), bubble_radius_px, (0, 0, 0), 2)
+            cv2.circle(img, (int(opt["x"] * W), int(opt["y"] * H)), bub_r, (0, 0, 0), 2)
 
-    # Resmi stream et
-    is_success, buffer = cv2.imencode(".png", img)
-    io_buf = io.BytesIO(buffer)
-    
-    return StreamingResponse(io_buf, media_type="image/png")
+    # ── F. Türkçe metin katmanı (PIL) ─────────────────────────────────────────
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    pil     = Image.fromarray(img_rgb)
+    draw    = ImageDraw.Draw(pil)
 
-# 2. İşleme Endpoint'i
+    f_lbl   = _get_font(22)   # alan etiketi (İsim)
+    f_title = _get_font(17)   # bölüm başlığı (Öğrenci Numarası)
+    f_pos   = _get_font(12)   # sütun pozisyon numaraları (gri)
+    f_row   = _get_font(12)   # satır rakam etiketleri (0-9)
+
+    # İsim etiketi — kutunun soluna yaslanır
+    for field in schema["fields"]:
+        fx = int(field["x"] * W)
+        fy = int(field["y"] * H)
+        fh = int(field["h"] * H)
+        lbl        = field.get("label", field["name"])
+        lbl_w, lbl_h = _text_wh(f_lbl, lbl)
+        draw.text((fx - lbl_w - 12, fy + (fh - lbl_h) // 2),
+                  lbl, font=f_lbl, fill=(0, 0, 0))
+
+    # "Öğrenci Numarası" başlığı — grid üzerinde ortalanır
+    grid_l = int((sn_xs - sn_chw) * W)
+    grid_r = int((sn_xs + (sn_dc - 1) * sn_xstp + sn_chw) * W)
+    ttl_w, ttl_h = _text_wh(f_title, sn["label"])
+    ttl_x  = grid_l + (grid_r - grid_l - ttl_w) // 2
+    ttl_y  = int(sn["y_label"] * H)
+    draw.text((ttl_x, ttl_y), sn["label"], font=f_title, fill=(0, 0, 0))
+
+    # Sütun pozisyon numaraları (1–9) — el yazısı kutusu içinde, gri
+    for col in range(sn_dc):
+        cx   = int((sn_xs + col * sn_xstp) * W)
+        lbl  = str(col + 1)
+        lw, lh = _text_wh(f_pos, lbl)
+        box_h = sn_y_bd - sn_y_gt
+        draw.text((cx - lw // 2, sn_y_gt + (box_h - lh) // 2),
+                  lbl, font=f_pos, fill=(160, 160, 160))
+
+    # Satır rakam etiketleri (0–9) — ilk sütunun soluna
+    first_col_l = int((sn_xs - sn_chw) * W)
+    for row in range(10):
+        cy   = int((sn_y_cs + row * sn_y_cst) * H)
+        lbl  = str(row)
+        rw, rh = _text_wh(f_row, lbl)
+        draw.text((first_col_l - rw - 5, cy - rh // 2),
+                  lbl, font=f_row, fill=(0, 0, 0))
+
+    img = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+
+    # ── G. PNG olarak aktar ───────────────────────────────────────────────────
+    ok, buf = cv2.imencode(".png", img)
+    return StreamingResponse(io.BytesIO(buf), media_type="image/png")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3. İşleme Endpoint'i
+# ──────────────────────────────────────────────────────────────────────────────
+
 @app.post("/process")
 async def process_form(
     file: UploadFile = File(...),
-    question_count: int = Form(20) # Mobilden gönderilecek soru sayısı form datası
+    question_count: int = Form(20),
 ):
-    """
-    Görüntü İşleme Büyüsü:
-    1. Görüntüyü alır, gri tona çevirir, bulanıklaştırır.
-    2. Köşeleri bulur, resmi "gerdirerek" (warp) standart bir forma oturtur.
-    3. /schema içindeki oranlara göre piksellere gidip threshold uygulayarak okuma yapar.
-    """
     try:
-        # 1. Resmi oku ve NumPy dizisine çevir
         contents = await file.read()
-        nparr = np.frombuffer(contents, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        nparr    = np.frombuffer(contents, np.uint8)
+        img      = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         if img is None:
             return JSONResponse(status_code=400, content={"error": "Geçersiz resim formatı."})
 
-        # --- Görüntü İşleme Büyüsü ---
-        schema = await get_schema(question_count)
-        maxWidth, maxHeight = 1000, 1400
+        schema     = await get_schema(question_count)
+        maxW, maxH = 1000, 1400
 
-        # A. Preprocessing & Anchor Detection
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # ── A. Ön işleme & Anchor tespiti ─────────────────────────────────────
+        gray     = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         img_h, img_w = img.shape[:2]
         img_area = img_h * img_w
 
-        # Çoklu threshold yöntemiyle kare marker'ları bul
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        _, thresh_otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        blurred      = cv2.GaussianBlur(gray, (5, 5), 0)
+        _, thresh_ot = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        kernel       = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        thresh       = cv2.morphologyEx(thresh_ot, cv2.MORPH_CLOSE, kernel, iterations=2)
+        contours, _  = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
-        # Morfolojik kapama: kopuk kenarları birleştir
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        thresh = cv2.morphologyEx(thresh_otsu, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-        contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-
-        # Kare/dikdörtgen ve içi dolu şekilleri filtrele — boyut görüntüye göre orantılı
-        raw_candidates = []
+        raw_cands = []
         for c in contours:
             area = cv2.contourArea(c)
             if img_area * 0.00015 < area < img_area * 0.025:
                 bx, by, bw, bh = cv2.boundingRect(c)
-                aspect = float(bw) / bh
+                aspect   = float(bw) / bh
                 solidity = area / float(bw * bh)
                 if 0.45 <= aspect <= 2.2 and solidity > 0.60:
-                    raw_candidates.append((c, area))
+                    raw_cands.append((c, area))
 
-        # En büyük 20'yi al, sonra boyut tutarsızlarını ele
-        raw_candidates.sort(key=lambda x: x[1], reverse=True)
-        raw_candidates = raw_candidates[:20]
+        raw_cands.sort(key=lambda x: x[1], reverse=True)
+        raw_cands = raw_cands[:20]
 
-        # Boyut tutarlılığı filtresi: medyan alanın 0.15x – 6x arasındakiler
-        if raw_candidates:
-            areas = [a for _, a in raw_candidates]
+        if raw_cands:
+            areas    = [a for _, a in raw_cands]
             median_a = float(np.median(areas[:min(8, len(areas))]))
-            raw_candidates = [(c, a) for c, a in raw_candidates
-                              if median_a * 0.15 < a < median_a * 6.0]
+            raw_cands = [(c, a) for c, a in raw_cands
+                         if median_a * 0.15 < a < median_a * 6.0]
 
-        anchor_candidates = [c for c, _ in raw_candidates]
+        anchor_cands = [c for c, _ in raw_cands]
 
-        if len(anchor_candidates) < 4:
-            return JSONResponse(
-                status_code=400,
-                content={"error": f"Yeterli referans noktası ({len(anchor_candidates)} adet) bulunamadı. Formu iyi aydınlatılmış, düz bir zeminde çekin ve tüm köşe karelerinin görünür olduğundan emin olun."}
-            )
+        if len(anchor_cands) < 4:
+            return JSONResponse(status_code=400, content={
+                "error": (f"Yeterli referans noktası ({len(anchor_cands)} adet) bulunamadı. "
+                          "Formu iyi aydınlatılmış, düz bir zeminde çekin ve tüm köşe "
+                          "karelerinin görünür olduğundan emin olun.")
+            })
 
-        # Merkezleri hesapla
         centers = []
-        for c in anchor_candidates:
-            M_c = cv2.moments(c)
-            if M_c["m00"] != 0:
-                cx_c = int(M_c["m10"] / M_c["m00"])
-                cy_c = int(M_c["m01"] / M_c["m00"])
+        for c in anchor_cands:
+            M = cv2.moments(c)
+            if M["m00"] != 0:
+                centers.append([int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])])
             else:
                 bx, by, bw, bh = cv2.boundingRect(c)
-                cx_c, cy_c = bx + bw // 2, by + bh // 2
-            centers.append([cx_c, cy_c])
+                centers.append([bx + bw // 2, by + bh // 2])
 
-        # Sol/Sağ ayrımı: görüntü ortası yerine tüm adayların medyan-x'ini kullan
-        # (form köşeden çekilse bile sol/sağ karıştırılmaz)
-        med_x = float(np.median([p[0] for p in centers]))
+        med_x     = float(np.median([p[0] for p in centers]))
         left_pts  = sorted([p for p in centers if p[0] <  med_x], key=lambda p: p[1])
         right_pts = sorted([p for p in centers if p[0] >= med_x], key=lambda p: p[1])
 
         if len(left_pts) < 2 or len(right_pts) < 2:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "Formun sol veya sağ tarafında yeterli marker bulunamadı. Tüm köşe karelerinin görünür olduğundan emin olun."}
-            )
+            return JSONResponse(status_code=400, content={
+                "error": "Formun sol veya sağ tarafında yeterli marker bulunamadı."
+            })
 
-        def pick_column(pts, n=3):
-            """Sıralı noktalardan: en üst, en alt ve mid-y'ye en yakın olanı seç."""
+        def pick_col(pts, n=3):
             if len(pts) <= n:
                 return pts[:n]
-            top    = pts[0]
-            bottom = pts[-1]
+            top, bottom = pts[0], pts[-1]
             if n == 2:
                 return [top, bottom]
             mid_y  = (top[1] + bottom[1]) / 2.0
             middle = min(pts[1:-1], key=lambda p: abs(p[1] - mid_y))
             return sorted([top, middle, bottom], key=lambda p: p[1])
 
-        schema_anchor_map = {a["id"]: a for a in schema["anchors"]}
-        use_6 = len(left_pts) >= 3 and len(right_pts) >= 3
+        am = {a["id"]: a for a in schema["anchors"]}
+        use6 = len(left_pts) >= 3 and len(right_pts) >= 3
 
-        if use_6:
-            tl, ml_pt, bl = pick_column(left_pts,  3)
-            tr, mr_pt, br = pick_column(right_pts, 3)
-
-            src_pts = np.array([tl, tr, mr_pt, br, bl, ml_pt], dtype="float32")
-            dst_pts = np.array([
-                [schema_anchor_map["top_left"]["x"]     * maxWidth, schema_anchor_map["top_left"]["y"]     * maxHeight],
-                [schema_anchor_map["top_right"]["x"]    * maxWidth, schema_anchor_map["top_right"]["y"]    * maxHeight],
-                [schema_anchor_map["middle_right"]["x"] * maxWidth, schema_anchor_map["middle_right"]["y"] * maxHeight],
-                [schema_anchor_map["bottom_right"]["x"] * maxWidth, schema_anchor_map["bottom_right"]["y"] * maxHeight],
-                [schema_anchor_map["bottom_left"]["x"]  * maxWidth, schema_anchor_map["bottom_left"]["y"]  * maxHeight],
-                [schema_anchor_map["middle_left"]["x"]  * maxWidth, schema_anchor_map["middle_left"]["y"]  * maxHeight],
+        if use6:
+            tl, ml_p, bl = pick_col(left_pts,  3)
+            tr, mr_p, br = pick_col(right_pts, 3)
+            src = np.array([tl, tr, mr_p, br, bl, ml_p], dtype="float32")
+            dst = np.array([
+                [am["top_left"]["x"]     * maxW, am["top_left"]["y"]     * maxH],
+                [am["top_right"]["x"]    * maxW, am["top_right"]["y"]    * maxH],
+                [am["middle_right"]["x"] * maxW, am["middle_right"]["y"] * maxH],
+                [am["bottom_right"]["x"] * maxW, am["bottom_right"]["y"] * maxH],
+                [am["bottom_left"]["x"]  * maxW, am["bottom_left"]["y"]  * maxH],
+                [am["middle_left"]["x"]  * maxW, am["middle_left"]["y"]  * maxH],
             ], dtype="float32")
-
-            H, hmask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-            if H is None:
-                return JSONResponse(status_code=400, content={"error": "Perspektif düzeltme matrisi hesaplanamadı."})
+            H_mat, _ = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
+            if H_mat is None:
+                return JSONResponse(status_code=400,
+                                    content={"error": "Perspektif matrisi hesaplanamadı."})
         else:
             tl, bl = left_pts[0],  left_pts[-1]
             tr, br = right_pts[0], right_pts[-1]
-
-            src_pts = np.array([tl, tr, br, bl], dtype="float32")
-            dst_pts = np.array([
-                [schema_anchor_map["top_left"]["x"]     * maxWidth, schema_anchor_map["top_left"]["y"]     * maxHeight],
-                [schema_anchor_map["top_right"]["x"]    * maxWidth, schema_anchor_map["top_right"]["y"]    * maxHeight],
-                [schema_anchor_map["bottom_right"]["x"] * maxWidth, schema_anchor_map["bottom_right"]["y"] * maxHeight],
-                [schema_anchor_map["bottom_left"]["x"]  * maxWidth, schema_anchor_map["bottom_left"]["y"]  * maxHeight],
+            src = np.array([tl, tr, br, bl], dtype="float32")
+            dst = np.array([
+                [am["top_left"]["x"]     * maxW, am["top_left"]["y"]     * maxH],
+                [am["top_right"]["x"]    * maxW, am["top_right"]["y"]    * maxH],
+                [am["bottom_right"]["x"] * maxW, am["bottom_right"]["y"] * maxH],
+                [am["bottom_left"]["x"]  * maxW, am["bottom_left"]["y"]  * maxH],
             ], dtype="float32")
+            H_mat = cv2.getPerspectiveTransform(src, dst)
 
-            H = cv2.getPerspectiveTransform(src_pts, dst_pts)
-
-        # B. Warping — detected anchor'ları da debug için orijinal görüntü üzerine çiz
-        debug_raw = img.copy()
-        for p in centers:
-            cv2.circle(debug_raw, (p[0], p[1]), 10, (0, 0, 255), -1)
-        # cv2.imwrite("debug_anchors_raw.jpg", debug_raw)
-
-        warped = cv2.warpPerspective(img, H, (maxWidth, maxHeight), borderValue=(255, 255, 255))
+        # ── B. Warp ───────────────────────────────────────────────────────────
+        warped      = cv2.warpPerspective(img, H_mat, (maxW, maxH),
+                                          borderValue=(255, 255, 255))
         warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-        
-        # OMR İçin Hassas Eşikleme (Soru/Şık kabarcıklarını ayıklamak için)
-        omr_thresh = cv2.adaptiveThreshold(
-            warped_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 15
+        omr_thresh  = cv2.adaptiveThreshold(
+            warped_gray, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 15
         )
-
-        # GÖRSEL HATA AYIKLAMA İÇİN KOPYA OLUŞTUR
         debug_img = warped.copy()
 
-        # Beklenen anchor konumlarını yeşil çemberle işaretle (warp doğruysa tam üstüne gelmeli)
-        for anchor in schema["anchors"]:
-            ax = int(anchor["x"] * maxWidth)
-            ay = int(anchor["y"] * maxHeight)
+        for a in schema["anchors"]:
+            ax, ay = int(a["x"] * maxW), int(a["y"] * maxH)
             cv2.circle(debug_img, (ax, ay), 18, (0, 200, 0), 3)
-            cv2.putText(debug_img, anchor["id"][:2], (ax + 20, ay + 6),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 180, 0), 1)
 
-        # C. OCR Analizi (Öğrenci Bilgilerini Okuma)
-        ocr_lang = _ocr_lang()
+        # ── C. OCR — sadece isim ──────────────────────────────────────────────
+        ocr_lang    = _ocr_lang()
         student_info = {}
         for field in schema["fields"]:
-            fx = int(field["x"] * maxWidth)
-            fy = int(field["y"] * maxHeight)
-            fw = int(field["w"] * maxWidth)
-            fh = int(field["h"] * maxHeight)
-
-            # Formun kendi siyah kenarlığını (2px) atlayarak iç alanı kes
-            inset = 3
+            fx = int(field["x"] * maxW);  fy = int(field["y"] * maxH)
+            fw = int(field["w"] * maxW);  fh = int(field["h"] * maxH)
+            inset      = 3
             field_crop = warped_gray[fy + inset:fy + fh - inset,
                                      fx + inset:fx + fw - inset]
             text = _ocr_field(field_crop, ocr_lang)
             student_info[field["name"]] = text
-
             cv2.rectangle(debug_img, (fx, fy), (fx + fw, fy + fh), (255, 0, 0), 2)
-            cv2.putText(debug_img, text[:40], (fx, fy - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
 
-        # D. OMR (Optik Okuma) Analizi
-        questions = schema["questions"]
-        bubble_radius_ratio = schema["metadata"].get("bubble_radius", 0.012)
-        bubble_radius_px = int(maxWidth * bubble_radius_ratio)
-        
+        # ── D. OMR — öğrenci numarası grid okuma ─────────────────────────────
+        sn       = schema["student_number_grid"]
+        sn_xs    = sn["x_start"]
+        sn_xstp  = sn["x_step"]
+        sn_y_cs  = sn["y_circle_start"]
+        sn_y_cst = sn["y_circle_step"]
+        sn_dc    = sn["digit_count"]
+        sn_br    = int(maxW * sn["bubble_radius"])
+        sn_ir    = max(int(sn_br * 0.8), 1)
+
+        digits = []
+        for col in range(sn_dc):
+            bx          = int((sn_xs + col * sn_xstp) * maxW)
+            best_d      = None
+            best_ratio  = 0.30
+
+            for row in range(10):
+                by     = int((sn_y_cs + row * sn_y_cst) * maxH)
+                mask   = np.zeros(omr_thresh.shape, dtype="uint8")
+                cv2.circle(mask, (bx, by), sn_ir, 255, -1)
+                total  = cv2.countNonZero(mask)
+                filled = cv2.countNonZero(cv2.bitwise_and(omr_thresh, omr_thresh, mask=mask))
+                if total > 0:
+                    r = filled / total
+                    if r > best_ratio:
+                        best_ratio, best_d = r, str(row)
+
+            digits.append(best_d if best_d is not None else "_")
+
+        student_info["student_number"] = "".join(digits)
+
+        # Debug: öğrenci numarası grid görselleştirme
+        for col in range(sn_dc):
+            bx = int((sn_xs + col * sn_xstp) * maxW)
+            for row in range(10):
+                by  = int((sn_y_cs + row * sn_y_cst) * maxH)
+                sel = (digits[col] == str(row))
+                cv2.circle(debug_img, (bx, by), sn_br,
+                           (0, 255, 0) if sel else (200, 200, 200),
+                           2 if sel else 1)
+
+        # ── E. OMR — soru balonları ───────────────────────────────────────────
+        bub_r   = int(maxW * schema["metadata"]["bubble_radius"])
         answers = {}
 
-        for q in questions:
-            q_no = q["q_no"]
-            options = q["options"]
-
-            marked_options = []  # Birden fazla işaretli şık desteklenir
-
-            for opt in options:
-                val = opt["val"]
-
-                bx = int(opt["x"] * maxWidth)
-                by = int(opt["y"] * maxHeight)
-
-                inner_radius = max(int(bubble_radius_px * 0.8), 1)
-
-                mask = np.zeros(omr_thresh.shape, dtype="uint8")
-                cv2.circle(mask, (bx, by), inner_radius, 255, -1)
-
-                bubble_area = cv2.bitwise_and(omr_thresh, omr_thresh, mask=mask)
-                total_pixels = cv2.countNonZero(mask)
-                filled_pixels = cv2.countNonZero(bubble_area)
-
-                if total_pixels > 0:
-                    filled_ratio = filled_pixels / total_pixels
-
-                    if filled_ratio >= 0.48:
-                        marked_options.append(val)
-
-                    color = (0, 255, 0) if filled_ratio >= 0.48 else (0, 0, 255)
-                    cv2.circle(debug_img, (bx, by), bubble_radius_px, color, 2)
-                    cv2.putText(debug_img, f"{filled_ratio:.2f}", (bx - 15, by - bubble_radius_px - 5),
+        for q in schema["questions"]:
+            marked = []
+            for opt in q["options"]:
+                bx = int(opt["x"] * maxW);  by = int(opt["y"] * maxH)
+                ir = max(int(bub_r * 0.8), 1)
+                mask   = np.zeros(omr_thresh.shape, dtype="uint8")
+                cv2.circle(mask, (bx, by), ir, 255, -1)
+                total  = cv2.countNonZero(mask)
+                filled = cv2.countNonZero(cv2.bitwise_and(omr_thresh, omr_thresh, mask=mask))
+                if total > 0:
+                    ratio = filled / total
+                    if ratio >= 0.48:
+                        marked.append(opt["val"])
+                    color = (0, 255, 0) if ratio >= 0.48 else (0, 0, 255)
+                    cv2.circle(debug_img, (bx, by), bub_r, color, 2)
+                    cv2.putText(debug_img, f"{ratio:.2f}",
+                                (bx - 15, by - bub_r - 5),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+            answers[str(q["q_no"])] = ",".join(marked)
 
-            # Birden fazla işaret: "A,B" formatında; boşsa ""
-            answers[str(q_no)] = ",".join(marked_options)
-        
-        # Analizin görsel halini backend sunucusunda `debug_omr_output.jpg` adıyla kaydet
-        cv2.imwrite("debug_omr_output.jpg", debug_img)
+        # cv2.imwrite("debug_omr_output.jpg", debug_img)
 
         return {
             "status": "success",
             "student_info": student_info,
             "answers": answers,
-            "metadata": {
-                "processed_width": maxWidth,
-                "processed_height": maxHeight
-            }
+            "metadata": {"processed_width": maxW, "processed_height": maxH},
         }
 
     except Exception as e:

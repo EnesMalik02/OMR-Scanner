@@ -90,9 +90,9 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
       <Image source={{ uri: imageUri }} style={styles.previewImage} resizeMode="contain" />
 
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Öğrenci Bilgileri (Demo)</Text>
+        <Text style={styles.sectionTitle}>Öğrenci Bilgileri</Text>
         <Text>İsim: {result.student_info?.name}</Text>
-        <Text>No: {result.student_info?.student_number}</Text>
+        <Text>Öğrenci No: {result.student_info?.student_number}</Text>
       </View>
 
       <View style={styles.card}>
