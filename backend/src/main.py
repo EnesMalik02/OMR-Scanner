@@ -3,9 +3,6 @@ from fastapi.responses import JSONResponse, StreamingResponse
 import io
 import cv2
 import numpy as np
-import easyocr
-
-reader = easyocr.Reader(['en', 'tr'], gpu=False)
 
 app = FastAPI(title="OMR Backend API", description="SaaS tabanlı Optik Okuyucu Backend'i")
 
@@ -266,9 +263,8 @@ async def process_form(
             # Kontrastı artırmak okumayı iyileştirebilir
             _, field_crop = cv2.threshold(field_crop, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
             
-            # EasyOCR ile texti çıkart (detail=0 liste formatında çıkartır)
-            text_result = reader.readtext(field_crop, detail=0)
-            text = " ".join(text_result)
+            # NOT: Render'da 512 MB belleği aşmamak için Ağır Yapay Zeka (EasyOCR) kaldırıldı.
+            text = "Belirtilmemiş (Kamera Okuması Kapalı)"
             student_info[field["name"]] = text.strip()
 
             # DEBUG ÇİZİMİ: Text alanlarını mavi kutuya al ve okunan metni yaz

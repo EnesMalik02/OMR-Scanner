@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 import { BackendSchema, ScanResult } from '../types';
 
 // Android Emulator uses 10.0.2.2 for localhost, iOS uses 127.0.0.1
-export const API_BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://127.0.0.1:8000';
+export const API_BASE_URL = 'https://omr-scanner-jsc8.onrender.com';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -33,7 +33,7 @@ export const processForm = async (imageUri: string, questionCount: number = 20):
       name: filename,
       type: 'image/jpeg',
     } as any);
-    
+
     // Add question_count exactly as expected by backend Form(...) field
     formData.append('question_count', questionCount.toString());
 
