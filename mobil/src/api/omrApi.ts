@@ -3,8 +3,8 @@ import { Platform } from 'react-native';
 import { BackendSchema, ScanResult } from '../types';
 
 // Android Emulator uses 10.0.2.2 for localhost, iOS uses 127.0.0.1
-//export const API_BASE_URL = 'https://omr-scanner-jsc8.onrender.com';
-export const API_BASE_URL = 'http://10.0.2.2:8000';
+export const API_BASE_URL = 'https://omr-scanner-jsc8.onrender.com';
+// export const API_BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://127.0.0.1:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

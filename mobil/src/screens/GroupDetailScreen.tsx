@@ -66,7 +66,7 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
   const handleDownloadForm = async () => {
     try {
       if (Platform.OS === 'android') {
-        const permission = Number(Platform.Version) >= 33 
+        const permission = Number(Platform.Version) >= 33
           ? PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES
           : PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE;
         const granted = await PermissionsAndroid.request(permission);
@@ -104,14 +104,14 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
         </View>
 
         <View style={styles.actionRow}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.actionButton}
             onPress={() => navigation.navigate('ExamConfig', { exam: group as any })}
           >
             <Text style={styles.actionText}>Cevap Anahtarı</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.actionButton, styles.scanButton]}
             onPress={handleScan}
           >
@@ -119,11 +119,11 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.downloadButton}
           onPress={handleDownloadForm}
         >
-          <Text style={styles.downloadText}>Formu Galerime İndir</Text>
+          <Text style={styles.downloadText}>Optik Formu İndir</Text>
         </TouchableOpacity>
       </View>
 

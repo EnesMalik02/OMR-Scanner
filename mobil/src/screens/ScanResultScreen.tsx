@@ -65,10 +65,12 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
   let blank = 0;
 
   const evaluation: any[] = []; // { qNo, userAns, correctAns, isCorrect }
-  const totalQuestionsScanned = Object.keys(result.answers).length;
+  const answers = result.answers || {};
+  const answerKey = exam.answerKey || {};
+  const totalQuestionsScanned = Object.keys(answers).length;
 
-  Object.entries(result.answers).forEach(([qNo, userAns]) => {
-    const correctAns = exam.answerKey[qNo];
+  Object.entries(answers).forEach(([qNo, userAns]) => {
+    const correctAns = answerKey[qNo];
     let isCorrect = false;
 
     if (!userAns || userAns === 'Boş') {
@@ -91,8 +93,8 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
 
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Öğrenci Bilgileri</Text>
-        <Text>İsim: {result.student_info?.name}</Text>
-        <Text>Öğrenci No: {result.student_info?.student_number}</Text>
+        <Text>İsim: {(result.student_info as any)?.student_name || result.student_info?.name || 'Okunamadı'}</Text>
+        <Text>Öğrenci No: {result.student_info?.student_number || 'Okunamadı'}</Text>
       </View>
 
       <View style={styles.card}>
@@ -132,7 +134,7 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
         onPress={() => {
           addStudentResult(exam.id, {
             id: Math.random().toString(36).substr(2, 9),
-            name: result.student_info?.name || 'Bilinmeyen',
+            name: (result.student_info as any)?.student_name || result.student_info?.name || 'Bilinmeyen',
             studentNumber: result.student_info?.student_number || 'Bilinmiyor',
             correct,
             wrong,
