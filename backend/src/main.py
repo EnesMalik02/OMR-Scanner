@@ -217,7 +217,7 @@ async def process_form(file: UploadFile = File(...)):
         
         # OMR İçin Hassas Eşikleme (Soru/Şık kabarcıklarını ayıklamak için)
         omr_thresh = cv2.adaptiveThreshold(
-            warped_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 21, 15
+            warped_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 15
         )
 
         # GÖRSEL HATA AYIKLAMA İÇİN KOPYA OLUŞTUR
@@ -266,8 +266,13 @@ async def process_form(file: UploadFile = File(...)):
                 bx = int(opt["x"] * maxWidth)
                 by = int(opt["y"] * maxHeight)
                 
+                # Yalnızca çemberin iç kısmını analiz etmek için yarıçapı küçült (sınır çizgilerini yoksay)
+                inner_radius = int(bubble_radius_px * 0.8)
+                if inner_radius < 1:
+                    inner_radius = 1
+
                 mask = np.zeros(omr_thresh.shape, dtype="uint8")
-                cv2.circle(mask, (bx, by), bubble_radius_px, 255, -1)
+                cv2.circle(mask, (bx, by), inner_radius, 255, -1)
                 
                 bubble_area = cv2.bitwise_and(omr_thresh, omr_thresh, mask=mask)
                 total_pixels = cv2.countNonZero(mask)
