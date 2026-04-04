@@ -49,8 +49,10 @@ async def get_schema(question_count: int = 20):
         "base_aspect_ratio": 0.71, # Genişlik / Yükseklik (A4 oranı)
         "anchors": [
             {"id": "top_left", "x": 0.05, "y": 0.05},
-            {"id": "top_right", "x": 0.95, "y": 0.05},
+            {"id": "middle_left", "x": 0.05, "y": 0.50},
             {"id": "bottom_left", "x": 0.05, "y": 0.95},
+            {"id": "top_right", "x": 0.95, "y": 0.05},
+            {"id": "middle_right", "x": 0.95, "y": 0.50},
             {"id": "bottom_right", "x": 0.95, "y": 0.95}
         ],
         "fields": [
@@ -181,30 +183,33 @@ async def process_form(
         
         # A. Preprocessing & Anchor Detection
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        # Adaptif eşikleme (aydınlatma dalgalanmalarına karşı dirençli OTSU)
+        _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Kağıt sınırının içindekileri de bulmak için RETR_EXTERNAL yerine RETR_LIST
+        contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         
         possible_anchors = []
         for c in contours:
             area = cv2.contourArea(c)
-            # Siyah kareler belli bir büyüklükte olmalı (Çok ufak tozlar elenir)
-            if 100 < area < 100000:
+            # Siyah kareler belli bir büyüklükte olmalı
+            if 100 < area < 50000:
                 x, y, w, h = cv2.boundingRect(c)
                 aspect_ratio = float(w) / h
                 solidity = area / float(w * h)
                 
                 # Kareye benzeyen ve içi dolu nesneleri filtrele
-                if 0.6 <= aspect_ratio <= 1.4 and solidity > 0.8:
+                if 0.5 <= aspect_ratio <= 1.5 and solidity > 0.7:
                     possible_anchors.append(c)
 
-        # Alanı en büyük olan 4 taneyi anchor kabul ediyoruz
-        possible_anchors = sorted(possible_anchors, key=cv2.contourArea, reverse=True)[:4]
+        # Alanı en büyük olanları anchor adayı yapalım (6 tane var ama ortam tozları olursa diye en büyük 10'u alırız)
+        possible_anchors = sorted(possible_anchors, key=cv2.contourArea, reverse=True)[:10]
         
         if len(possible_anchors) < 4:
             return JSONResponse(
                 status_code=400, 
-                content={"error": "4 adet referans noktası (anchor) bulunamadı. Lütfen formu daha net çekin."}
+                content={"error": f"Yeterli referans noktası (Yalnızca {len(possible_anchors)} adet) bulunamadı. Form tamamen karanlık, gölgeli veya çok uzak olabilir. Ayrıca kağıt uçlarının görünür olduğundan emin olun."}
             )
 
         # Anchorların merkezlerini hesapla
