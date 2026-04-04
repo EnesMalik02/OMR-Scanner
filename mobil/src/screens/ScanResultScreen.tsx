@@ -4,11 +4,13 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { processForm } from '../api/omrApi';
 import { ScanResult } from '../types';
+import { useStore } from '../store/useStore';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScanResult'>;
 
 export const ScanResultScreen = ({ route, navigation }: Props) => {
   const { exam, imageUri } = route.params;
+  const { addStudentResult } = useStore();
   const [loading, setLoading] = useState(true);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [errorMSG, setErrorMSG] = useState<string | null>(null);
@@ -21,7 +23,7 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
     try {
       setLoading(true);
       setErrorMSG(null);
-      const res = await processForm(imageUri);
+      const res = await processForm(imageUri, exam.questionCount);
       
       if (res.error || res.status === 'error') {
         setErrorMSG(res.error || 'Tarama sırasında hata oluştu.');
@@ -69,8 +71,9 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
     const correctAns = exam.answerKey[qNo];
     let isCorrect = false;
 
-    if (userAns === 'Boş') {
+    if (!userAns || userAns === 'Boş') {
       blank++;
+      userAns = 'Boş Geçilmiş'; // Ekranda göstermek için
     } else if (userAns === correctAns) {
       correct++;
       isCorrect = true;
@@ -124,8 +127,22 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
         ))}
       </View>
 
-      <TouchableOpacity style={styles.btnFinish} onPress={() => navigation.navigate('GroupDetail', { groupId: exam.groupId, groupName: 'Grup' } as any)}>
-        <Text style={styles.btnText}>Bitir ve Geri Dön</Text>
+      <TouchableOpacity 
+        style={styles.btnFinish} 
+        onPress={() => {
+          addStudentResult(exam.id, {
+            id: Math.random().toString(36).substr(2, 9),
+            name: result.student_info?.name || 'Bilinmeyen',
+            studentNumber: result.student_info?.student_number || 'Bilinmiyor',
+            correct,
+            wrong,
+            blank,
+            scannedAt: Date.now()
+          });
+          navigation.navigate('GroupDetail', { groupId: exam.id } as any);
+        }}
+      >
+        <Text style={styles.btnText}>Kaydet ve Bitir</Text>
       </TouchableOpacity>
     </ScrollView>
   );

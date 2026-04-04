@@ -1,14 +1,19 @@
+export interface StudentResult {
+  id: string;
+  name: string;
+  studentNumber: string;
+  correct: number;
+  wrong: number;
+  blank: number;
+  scannedAt: number;
+}
+
 export interface Group {
   id: string;
   name: string;
-  createdAt: number;
-}
-
-export interface Exam {
-  id: string;
-  groupId: string;
-  title: string;
-  answerKey: Record<string, string>; // e.g. { "1": "A", "2": "C" }
+  questionCount: number;
+  answerKey: Record<string, string>;
+  results?: StudentResult[];
   createdAt: number;
 }
 

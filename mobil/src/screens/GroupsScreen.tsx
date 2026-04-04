@@ -8,12 +8,19 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Groups'>;
 
 export const GroupsScreen = ({ navigation }: Props) => {
   const [newGroupName, setNewGroupName] = useState('');
+  const [questionCount, setQuestionCount] = useState('20');
   const { groups, addGroup, removeGroup } = useStore();
 
   const handleAddGroup = () => {
     if (!newGroupName.trim()) return;
-    addGroup(newGroupName.trim());
+    const count = parseInt(questionCount, 10);
+    if (isNaN(count) || count < 1 || count > 30) {
+      Alert.alert('Hata', 'Soru sayısı 1 ile 30 arasında olmalıdır.');
+      return;
+    }
+    addGroup(newGroupName.trim(), count);
     setNewGroupName('');
+    setQuestionCount('20');
   };
 
   const renderGroupItem = ({ item }: { item: any }) => (
@@ -40,6 +47,14 @@ export const GroupsScreen = ({ navigation }: Props) => {
           placeholder="Yeni Sınıf/Grup Adı..."
           value={newGroupName}
           onChangeText={setNewGroupName}
+        />
+        <TextInput
+          style={[styles.input, { flex: 0.4, marginRight: 12 }]}
+          placeholder="Soru"
+          value={questionCount}
+          onChangeText={setQuestionCount}
+          keyboardType="numeric"
+          maxLength={2}
         />
         <TouchableOpacity style={styles.addButton} onPress={handleAddGroup}>
           <Text style={styles.addButtonText}>Ekle</Text>

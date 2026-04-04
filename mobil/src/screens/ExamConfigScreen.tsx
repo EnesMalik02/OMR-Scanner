@@ -22,7 +22,7 @@ export const ExamConfigScreen = ({ route, navigation }: Props) => {
 
   const loadSchema = async () => {
     try {
-      const data = await fetchSchema();
+      const data = await fetchSchema(exam.questionCount);
       setSchema(data);
     } catch (e) {
       Alert.alert('Bağlantı Hatası', 'Şema yüklenemedi. Backend çalışıyor mu? (http://127.0.0.1:8000)');
@@ -112,7 +112,7 @@ export const ExamConfigScreen = ({ route, navigation }: Props) => {
         contentContainerStyle={styles.listContainer}
         ListHeaderComponent={
           <>
-            <Text style={styles.headerTitle}>{exam.title} - Doğru Cevaplar</Text>
+            <Text style={styles.headerTitle}>{exam.name} - Doğru Cevaplar</Text>
             {renderHeader()}
           </>
         }

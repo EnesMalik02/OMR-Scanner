@@ -11,12 +11,42 @@ app = FastAPI(title="OMR Backend API", description="SaaS tabanlı Optik Okuyucu 
 
 # 1. Şema Endpoint'i
 @app.get("/schema")
-async def get_schema():
+async def get_schema(question_count: int = 20):
     """
     Mobil uygulamanın ekranında formu nasıl çizeceğini söyler.
     Koordinatlar (x, y, w, h) yüzdelik dilimler (0.0 - 1.0) arasındadır.
     Mobil cihazın genişlik ve yüksekliği ile çarpılarak çizim yapılabilir.
     """
+    questions = []
+    options_labels = ["A", "B", "C", "D", "E"]
+    
+    start_y = 0.28
+    y_step = 0.03
+    base_x = 0.15
+    opt_x_step = 0.05
+    
+    current_y = start_y
+    for i in range(1, question_count + 1):
+        if current_y > 0.88:
+            # Kağıdın altına çok yaklaştıysa ikinci / sonraki sütuna geç
+            current_y = start_y
+            base_x += 0.40 # X eksenini sağa kaydır
+            
+        options = []
+        for j, val in enumerate(options_labels):
+            options.append({
+                "val": val,
+                "x": round(base_x + j * opt_x_step, 3),
+                "y": round(current_y, 3)
+            })
+            
+        questions.append({
+            "q_no": i,
+            "options": options
+        })
+        
+        current_y += y_step
+
     return {
         "template_id": "zipgrade_20_v1",
         "base_aspect_ratio": 0.71, # Genişlik / Yükseklik (A4 oranı)
@@ -27,34 +57,12 @@ async def get_schema():
             {"id": "bottom_right", "x": 0.95, "y": 0.95}
         ],
         "fields": [
-            {"name": "student_name", "x": 0.2, "y": 0.1, "w": 0.6, "h": 0.05},
-            {"name": "student_number", "x": 0.2, "y": 0.16, "w": 0.6, "h": 0.05}
+            {"name": "student_name", "label": "Name", "x": 0.3, "y": 0.09, "w": 0.5, "h": 0.045},
+            {"name": "student_number", "label": "Number", "x": 0.3, "y": 0.15, "w": 0.5, "h": 0.045}
         ],
-        "questions": [
-            {
-                "q_no": 1,
-                "options": [
-                    {"val": "A", "x": 0.15, "y": 0.25},
-                    {"val": "B", "x": 0.20, "y": 0.25},
-                    {"val": "C", "x": 0.25, "y": 0.25},
-                    {"val": "D", "x": 0.30, "y": 0.25},
-                    {"val": "E", "x": 0.35, "y": 0.25}
-                ]
-            },
-            {
-                "q_no": 2,
-                "options": [
-                    {"val": "A", "x": 0.15, "y": 0.28},
-                    {"val": "B", "x": 0.20, "y": 0.28},
-                    {"val": "C", "x": 0.25, "y": 0.28},
-                    {"val": "D", "x": 0.30, "y": 0.28},
-                    {"val": "E", "x": 0.35, "y": 0.28}
-                ]
-            }
-            # ... İhtiyaca göre 20 soru bu şekilde eklenebilir
-        ],
+        "questions": questions,
         "metadata": {
-            "total_questions": 20,
+            "total_questions": question_count,
             "bubble_radius": 0.012 # Yuvarlakların tahmini yarıçap oranı
         }
     }
@@ -74,9 +82,9 @@ def order_points(pts):
     return rect
 
 @app.get("/generate_form")
-async def generate_form():
+async def generate_form(question_count: int = 30):
     """Dinamik olarak şemaya göre optik form çizer ve PNG olarak döndürür."""
-    schema = await get_schema()
+    schema = await get_schema(question_count)
     
     # 1000x1400 (base_aspect_ratio: 0.71) boyutlarında beyaz tuval
     width, height = 1000, 1400
@@ -96,20 +104,33 @@ async def generate_form():
         fw = int(field["w"] * width)
         fh = int(field["h"] * height)
         cv2.rectangle(img, (fx, fy), (fx + fw, fy + fh), (0, 0, 0), 2)
-        cv2.putText(img, field["name"], (fx + 10, fy + 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
+        
+        # Etiketleri kutunun soluna kısa bir şekilde yazıyoruz
+        label = field.get("label", field["name"])
+        text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)[0]
+        text_x = fx - text_size[0] - 15  # Kutunun hemen soluna (15px boşluk)
+        text_y = fy + (fh + text_size[1]) // 2
+        cv2.putText(img, label, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
 
     # 3. Bubbles (Soru - Şıklar)
     bubble_radius_ratio = schema["metadata"].get("bubble_radius", 0.012)
     bubble_radius_px = int(width * bubble_radius_ratio)
 
     if schema["questions"]:
-        first_q = schema["questions"][0]
-        for opt in first_q["options"]:
-            cx = int(opt["x"] * width)
-            text_y = int(first_q["options"][0]["y"] * height) - int(bubble_radius_px * 2.5)
-            text_size = cv2.getTextSize(opt["val"], cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
-            text_x = cx - text_size[0] // 2
-            cv2.putText(img, opt["val"], (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        # Grup başlıkları (A B C D E vb.) her sütun için çizilsin
+        column_xs = set()
+        for q in schema["questions"]:
+            first_opt_x = int(q["options"][0]["x"] * width)
+            if first_opt_x not in column_xs:
+                column_xs.add(first_opt_x)
+                # Yeni bir sütun başlangıcı, A B C D E yazalım
+                for opt in q["options"]:
+                    cx = int(opt["x"] * width)
+                    # 2.5 yerine 1.8 ile yuvarlaklara daha yakın olup üst kısımdan (OCR bölümünden) uzaklaşır
+                    text_y = int(q["options"][0]["y"] * height) - int(bubble_radius_px * 1.8)
+                    text_size = cv2.getTextSize(opt["val"], cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
+                    text_x = cx - text_size[0] // 2
+                    cv2.putText(img, opt["val"], (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
 
     for q in schema["questions"]:
         q_no = q["q_no"]
@@ -117,7 +138,13 @@ async def generate_form():
         # Soru Numarasını en soldaki şıktan biraz daha sola çizelim
         first_opt_x = int(q["options"][0]["x"] * width)
         first_opt_y = int(q["options"][0]["y"] * height)
-        cv2.putText(img, f"{q_no}.", (first_opt_x - 50, first_opt_y + 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
+        
+        q_text = f"{q_no}."
+        q_text_size = cv2.getTextSize(q_text, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)[0]
+        # Yuvarlağın 15px soluna sağa dayalı şekilde yerleştir
+        text_x = first_opt_x - bubble_radius_px - q_text_size[0] - 15
+        text_y = first_opt_y + (q_text_size[1] // 2)
+        cv2.putText(img, q_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
 
         for opt in q["options"]:
             cx = int(opt["x"] * width)
@@ -134,7 +161,10 @@ async def generate_form():
 
 # 2. İşleme Endpoint'i
 @app.post("/process")
-async def process_form(file: UploadFile = File(...)):
+async def process_form(
+    file: UploadFile = File(...),
+    question_count: int = Form(20) # Mobilden gönderilecek soru sayısı form datası
+):
     """
     Görüntü İşleme Büyüsü:
     1. Görüntüyü alır, gri tona çevirir, bulanıklaştırır.
@@ -194,7 +224,7 @@ async def process_form(file: UploadFile = File(...)):
             
         src_pts = order_points(np.array(anchor_centers, dtype="float32"))
         
-        schema = await get_schema()
+        schema = await get_schema(question_count)
         maxWidth, maxHeight = 1000, 1400
         
         # Şemadaki anchor idleri sırasıyla: top_left, top_right, bottom_left, bottom_right 

@@ -9,9 +9,9 @@ const api = axios.create({
   baseURL: API_BASE_URL,
 });
 
-export const fetchSchema = async (): Promise<BackendSchema> => {
+export const fetchSchema = async (questionCount: number = 20): Promise<BackendSchema> => {
   try {
-    const response = await api.get<BackendSchema>('/schema');
+    const response = await api.get<BackendSchema>(`/schema?question_count=${questionCount}`);
     return response.data;
   } catch (error) {
     console.error('Error fetching schema:', error);
@@ -19,7 +19,7 @@ export const fetchSchema = async (): Promise<BackendSchema> => {
   }
 };
 
-export const processForm = async (imageUri: string): Promise<ScanResult> => {
+export const processForm = async (imageUri: string, questionCount: number = 20): Promise<ScanResult> => {
   try {
     const formData = new FormData();
 
@@ -33,6 +33,9 @@ export const processForm = async (imageUri: string): Promise<ScanResult> => {
       name: filename,
       type: 'image/jpeg',
     } as any);
+    
+    // Add question_count exactly as expected by backend Form(...) field
+    formData.append('question_count', questionCount.toString());
 
     const response = await api.post<ScanResult>('/process', formData, {
       headers: {
