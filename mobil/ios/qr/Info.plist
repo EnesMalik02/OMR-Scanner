@@ -56,5 +56,11 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>Optik form taramak için kamera izni gerekiyor.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Optik form fotoğraflarını kaydetmek için galeri izni gerekiyor.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Optik form fotoğraflarını kaydetmek için galeri izni gerekiyor.</string>
 </dict>
 </plist>

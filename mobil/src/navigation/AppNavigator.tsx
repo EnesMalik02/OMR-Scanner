@@ -7,13 +7,15 @@ import { GroupDetailScreen } from '../screens/GroupDetailScreen';
 import { ExamConfigScreen } from '../screens/ExamConfigScreen';
 import { ScanResultScreen } from '../screens/ScanResultScreen';
 import { ResultDetailScreen } from '../screens/ResultDetailScreen';
+import { CameraScreen } from '../screens/CameraScreen';
 import { Exam } from '../types';
 
 export type RootStackParamList = {
   Groups: undefined;
-  GroupDetail: { groupId: string; groupName: string };
+  GroupDetail: { groupId: string; groupName: string; capturedImageUri?: string };
   ExamConfig: { exam: Exam };
-  ScanResult: { exam: Exam; imageUri: string };
+  Camera: { groupId: string; groupName: string; questionCount: number };
+  ScanResult: { exam: Exam; imageUri: string; examId?: string; questionCount?: number };
   ResultDetail: { groupId: string; resultId: string };
 };
 
@@ -46,6 +48,11 @@ export const AppNavigator = () => {
           name="ExamConfig"
           component={ExamConfigScreen}
           options={{ title: 'Cevap Anahtarı' }}
+        />
+        <Stack.Screen
+          name="Camera"
+          component={CameraScreen}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="ScanResult"

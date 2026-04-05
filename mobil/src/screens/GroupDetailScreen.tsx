@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, PermissionsAndroid, Platform, ScrollView, TextInput, Modal, Animated, PanResponder, Dimensions, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, Platform, ScrollView, Animated, PanResponder, Dimensions, ActivityIndicator } from 'react-native';
 import {
   BookOpen, Key, Camera, Download, FileSpreadsheet, ChevronRight,
   CheckCircle, AlertCircle, FileText, FileX,
@@ -7,7 +7,6 @@ import {
 import { useStore } from '../store/useStore';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import ImagePicker from 'react-native-image-crop-picker';
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import { API_BASE_URL, processForm } from '../api/omrApi';
@@ -101,8 +100,19 @@ const SwipeableResultItem = ({ res, score, onPress, onDelete }: { res: any, scor
 export const GroupDetailScreen = ({ route, navigation }: Props) => {
   const { groupId } = route.params;
   const { groups, addStudentResult, updateStudentResult, removeStudentResult } = useStore();
+  const processedUriRef = useRef<string | null>(null);
 
   const group = groups.find(g => g.id === groupId);
+
+  // Kamera ekranından dönen fotoğrafı al ve işle
+  useEffect(() => {
+    const uri = route.params.capturedImageUri;
+    if (uri && uri !== processedUriRef.current && group) {
+      processedUriRef.current = uri;
+      handleImageCaptured(uri);
+      navigation.setParams({ capturedImageUri: undefined } as any);
+    }
+  }, [route.params.capturedImageUri]);
 
   if (!group) {
     return (
@@ -112,61 +122,27 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
     );
   }
 
-  const handleScan = async () => {
-    if (Platform.OS === 'android') {
-      try {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.CAMERA,
-          {
-            title: 'Kamera İzni',
-            message: 'Optik formu taramak için kameranıza erişmemiz gerekiyor.',
-            buttonNeutral: 'Daha Sonra',
-            buttonNegative: 'İptal',
-            buttonPositive: 'İzin Ver',
-          }
-        );
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          Alert.alert('İzin Reddedildi', 'Form tarayabilmek için kamera izni vermeniz gerekiyor.');
-          return;
-        }
-      } catch (err) {
-        console.warn(err);
-        return;
-      }
-    }
+  const handleScan = () => {
+    navigation.navigate('Camera', {
+      groupId: group.id,
+      groupName: group.name,
+      questionCount: group.questionCount,
+    });
+  };
 
-    try {
-      const image = await ImagePicker.openCamera({
-        cropping: false,
-        compressImageQuality: 0.6,
-        compressImageMaxWidth: 1200,
-        compressImageMaxHeight: 1600,
-        mediaType: 'photo',
-      });
-
-      // Pending sonucu oluştur
-      const pendingId = Math.random().toString(36).substr(2, 9);
-      addStudentResult(group.id, {
-        id: pendingId,
-        name: 'Okunuyor...',
-        studentNumber: '',
-        correct: 0,
-        wrong: 0,
-        blank: 0,
-        score: 0,
-        answers: {},
-        scannedAt: Date.now(),
-        pending: true,
-      });
-
-      // Arka planda işle
-      processFormInBackground(image.path, pendingId);
-
-    } catch (e: any) {
-      if (e.message !== 'User cancelled image selection') {
-        Alert.alert('Kamera Hatası', e.message);
-      }
-    }
+  // Kamera ekranından dönen fotoğrafı işle
+  const handleImageCaptured = (imageUri: string) => {
+    const pendingId = Math.random().toString(36).substr(2, 9);
+    addStudentResult(group.id, {
+      id: pendingId,
+      name: 'Okunuyor...',
+      studentNumber: '',
+      correct: 0, wrong: 0, blank: 0, score: 0,
+      answers: {},
+      scannedAt: Date.now(),
+      pending: true,
+    });
+    processFormInBackground(imageUri, pendingId);
   };
 
   const processFormInBackground = async (imageUri: string, pendingId: string) => {
