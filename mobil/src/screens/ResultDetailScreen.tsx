@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { CheckCircle2, XCircle, MinusCircle, AlertCircle, Info } from 'lucide-react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useStore } from '../store/useStore';
@@ -79,11 +80,11 @@ export const ResultDetailScreen = ({ route, navigation }: Props) => {
     multiple: '#d97706',
   };
 
-  const statusIcons: Record<string, string> = {
-    correct: '✓',
-    wrong: '✗',
-    blank: '—',
-    multiple: '⚠',
+  const StatusIconMap = {
+    correct: CheckCircle2,
+    wrong: XCircle,
+    blank: MinusCircle,
+    multiple: AlertCircle,
   };
 
   return (
@@ -140,9 +141,7 @@ export const ResultDetailScreen = ({ route, navigation }: Props) => {
                   },
                 ]}>
                   <Text style={styles.qNoText}>Soru {item.qNo}</Text>
-                  <Text style={[styles.statusIcon, { color: statusColors[item.status] }]}>
-                    {statusIcons[item.status]}
-                  </Text>
+                  {(() => { const SI = StatusIconMap[item.status as keyof typeof StatusIconMap]; return <SI size={20} color={statusColors[item.status]} />; })()}
                 </View>
 
                 {/* Answer Key Row */}
@@ -211,7 +210,8 @@ export const ResultDetailScreen = ({ route, navigation }: Props) => {
                 {/* Explanation for multiple marks */}
                 {item.explanation && (
                   <View style={styles.explanationRow}>
-                    <Text style={styles.explanationText}>ℹ️ {item.explanation}</Text>
+                    <Info size={14} color="#92400E" style={{ marginRight: 6, marginTop: 1 }} />
+                    <Text style={styles.explanationText}>{item.explanation}</Text>
                   </View>
                 )}
               </View>
@@ -224,7 +224,7 @@ export const ResultDetailScreen = ({ route, navigation }: Props) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f0f2f5' },
+  container: { flex: 1, backgroundColor: '#F7F8FA' },
   scrollContent: { paddingBottom: 30 },
   centered: { alignItems: 'center', justifyContent: 'center', padding: 20 },
   emptyText: { textAlign: 'center', color: '#999', fontSize: 16 },
@@ -294,7 +294,6 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
   },
   qNoText: { fontSize: 15, fontWeight: 'bold', color: '#374151' },
-  statusIcon: { fontSize: 20, fontWeight: 'bold' },
 
   // Answer rows
   answerRow: {
@@ -331,11 +330,13 @@ const styles = StyleSheet.create({
 
   // Explanation
   explanationRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#fffbeb',
+    paddingVertical: 10,
+    backgroundColor: '#FFFBEB',
     borderTopWidth: 1,
-    borderTopColor: '#fef3c7',
+    borderTopColor: '#FEF3C7',
   },
-  explanationText: { fontSize: 12, color: '#92400e', lineHeight: 18 },
+  explanationText: { flex: 1, fontSize: 12, color: '#92400E', lineHeight: 18 },
 });

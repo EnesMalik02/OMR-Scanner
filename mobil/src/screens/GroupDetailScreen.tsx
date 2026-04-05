@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, PermissionsAndroid, Platform, ScrollView, TextInput, Modal, Animated, PanResponder, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, PermissionsAndroid, Platform, ScrollView, TextInput, Modal, Animated, PanResponder, Dimensions, ActivityIndicator } from 'react-native';
+import {
+  BookOpen, Key, Camera, Download, FileSpreadsheet, ChevronRight,
+  CheckCircle, AlertCircle, FileText, FileX,
+} from 'lucide-react-native';
 import { useStore } from '../store/useStore';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -12,6 +16,13 @@ import * as XLSX from 'xlsx';
 type Props = NativeStackScreenProps<RootStackParamList, 'GroupDetail'>;
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
+
+const AVATAR_COLORS = ['#F4511E','#0EA5E9','#8B5CF6','#10B981','#F59E0B','#EC4899','#14B8A6','#6366F1'];
+const getAvatarColor = (name: string) => {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+};
 
 const SwipeableResultItem = ({ res, score, onPress, onDelete }: { res: any, score: number, onPress: () => void, onDelete: () => void }) => {
   const [swipeAnim] = useState(new Animated.Value(0));
@@ -61,7 +72,7 @@ const SwipeableResultItem = ({ res, score, onPress, onDelete }: { res: any, scor
           activeOpacity={0.7}
         >
           <View style={styles.resultLeft}>
-            <View style={styles.resultAvatar}>
+            <View style={[styles.resultAvatar, { backgroundColor: getAvatarColor(res.name || '?') }]}>
               <Text style={styles.resultAvatarText}>
                 {(res.name || '?')[0].toUpperCase()}
               </Text>
@@ -80,7 +91,7 @@ const SwipeableResultItem = ({ res, score, onPress, onDelete }: { res: any, scor
             </View>
             <Text style={styles.resultScore}>{score.toFixed(2)}</Text>
           </View>
-          <Text style={styles.chevron}>›</Text>
+          <ChevronRight size={18} color="#D1D5DB" />
         </TouchableOpacity>
       </Animated.View>
     </View>
@@ -311,7 +322,7 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
       <View style={styles.headerCard}>
         <View style={styles.headerTop}>
           <View style={styles.headerIconBox}>
-            <Text style={styles.headerIconText}>📋</Text>
+            <BookOpen size={24} color="#F4511E" />
           </View>
           <View style={styles.headerInfo}>
             <Text style={styles.headerTitle}>{group.name}</Text>
@@ -319,18 +330,20 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
           </View>
         </View>
 
-        {/* Status badges */}
         <View style={styles.statusRow}>
           {hasAnswerKey ? (
             <View style={[styles.statusBadge, styles.statusGreen]}>
-              <Text style={styles.statusGreenText}>✓ Cevap Anahtarı Hazır</Text>
+              <CheckCircle size={12} color="#059669" style={{ marginRight: 4 }} />
+              <Text style={styles.statusGreenText}>Cevap Anahtarı Hazır</Text>
             </View>
           ) : (
             <View style={[styles.statusBadge, styles.statusOrange]}>
-              <Text style={styles.statusOrangeText}>⚠ Cevap Anahtarı Girilmemiş</Text>
+              <AlertCircle size={12} color="#D97706" style={{ marginRight: 4 }} />
+              <Text style={styles.statusOrangeText}>Cevap Anahtarı Girilmemiş</Text>
             </View>
           )}
           <View style={styles.statusBadge}>
+            <FileText size={12} color="#6B7280" style={{ marginRight: 4 }} />
             <Text style={styles.statusText}>{completedResults.length} Tarama</Text>
           </View>
         </View>
@@ -342,28 +355,30 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
           <TouchableOpacity
             style={styles.actionBtn}
             onPress={() => navigation.navigate('ExamConfig', { exam: group as any })}
+            activeOpacity={0.75}
           >
-            <Text style={styles.actionBtnIcon}>📝</Text>
+            <Key size={16} color="#374151" />
             <Text style={styles.actionBtnText}>Cevap Anahtarı</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.actionBtn, styles.scanBtn]}
             onPress={handleScan}
+            activeOpacity={0.85}
           >
-            <Text style={styles.actionBtnIcon}>📷</Text>
+            <Camera size={16} color="#FFFFFF" />
             <Text style={styles.scanBtnText}>Tara</Text>
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.downloadBtn} onPress={handleDownloadForm}>
-          <Text style={styles.downloadBtnIcon}>⬇️</Text>
+        <TouchableOpacity style={styles.downloadBtn} onPress={handleDownloadForm} activeOpacity={0.75}>
+          <Download size={16} color="#F4511E" />
           <Text style={styles.downloadBtnText}>Optik Formu İndir</Text>
         </TouchableOpacity>
 
         {completedResults.length > 0 && (
-          <TouchableOpacity style={styles.excelBtn} onPress={handleExportExcel}>
-            <Text style={styles.excelBtnIcon}>📊</Text>
+          <TouchableOpacity style={styles.excelBtn} onPress={handleExportExcel} activeOpacity={0.85}>
+            <FileSpreadsheet size={16} color="#FFFFFF" />
             <Text style={styles.excelBtnText}>Sonuçları Excel'e Aktar</Text>
           </TouchableOpacity>
         )}
@@ -376,10 +391,10 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
         {/* Pending scans */}
         {pendingResults.map((res: any, index: number) => (
           <View key={res.id || `pending-${index}`} style={[styles.resultCard, styles.resultCardPending]}>
-            <View style={styles.pendingDot} />
+            <ActivityIndicator size="small" color="#D97706" style={{ marginRight: 12 }} />
             <View style={styles.resultInfo}>
-              <Text style={styles.pendingText}>⏳ Taranıyor...</Text>
-              <Text style={styles.pendingSubtext}>Optik form okunuyor, lütfen bekleyin</Text>
+              <Text style={styles.pendingText}>Taranıyor...</Text>
+              <Text style={styles.pendingSubtext}>Optik form okunuyor</Text>
             </View>
           </View>
         ))}
@@ -387,7 +402,9 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
         {/* Completed scans */}
         {completedResults.length === 0 && pendingResults.length === 0 ? (
           <View style={styles.emptyResultsBox}>
-            <Text style={styles.emptyResultsIcon}>📄</Text>
+            <View style={styles.emptyResultsIconWrap}>
+              <FileX size={34} color="#D1D5DB" />
+            </View>
             <Text style={styles.emptyResultsText}>Henüz form taranmamış</Text>
             <Text style={styles.emptyResultsSubtext}>Yukarıdaki "Tara" butonunu kullanarak başlayın</Text>
           </View>
@@ -432,22 +449,21 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 14,
-    backgroundColor: '#fff3ed',
+    backgroundColor: '#FEF2ED',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
   },
-  headerIconText: { fontSize: 26 },
   headerInfo: { flex: 1 },
   headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#1f2937' },
   headerSubtitle: { fontSize: 14, color: '#9ca3af', marginTop: 2 },
   statusRow: { flexDirection: 'row', gap: 8, marginTop: 14, flexWrap: 'wrap' },
-  statusBadge: { backgroundColor: '#f3f4f6', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 },
-  statusText: { fontSize: 12, color: '#6b7280', fontWeight: '600' },
-  statusGreen: { backgroundColor: '#dcfce7' },
-  statusGreenText: { fontSize: 12, color: '#16a34a', fontWeight: '600' },
-  statusOrange: { backgroundColor: '#fff7ed' },
-  statusOrangeText: { fontSize: 12, color: '#ea580c', fontWeight: '600' },
+  statusBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+  statusText: { fontSize: 12, color: '#6B7280', fontWeight: '600' },
+  statusGreen: { backgroundColor: '#ECFDF5' },
+  statusGreenText: { fontSize: 12, color: '#059669', fontWeight: '600' },
+  statusOrange: { backgroundColor: '#FFFBEB' },
+  statusOrangeText: { fontSize: 12, color: '#D97706', fontWeight: '600' },
 
   // Actions Card
   actionsCard: {
@@ -473,51 +489,44 @@ const styles = StyleSheet.create({
     borderColor: '#e5e7eb',
     gap: 6,
   },
-  actionBtnIcon: { fontSize: 16 },
-  actionBtnText: { color: '#374151', fontWeight: 'bold', fontSize: 15 },
+  actionBtnText: { color: '#374151', fontWeight: '700', fontSize: 14 },
   scanBtn: { backgroundColor: '#f4511e', borderColor: '#f4511e' },
-  scanBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
+  scanBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   downloadBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
+    paddingVertical: 13,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: '#f4511e',
+    borderColor: '#F4511E',
     gap: 6,
+    marginTop: 10,
   },
-  downloadBtnIcon: { fontSize: 14 },
-  downloadBtnText: { color: '#f4511e', fontWeight: 'bold', fontSize: 15 },
+  downloadBtnText: { color: '#F4511E', fontWeight: '700', fontSize: 14 },
   excelBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
+    paddingVertical: 13,
     borderRadius: 12,
-    backgroundColor: '#16a34a',
+    backgroundColor: '#059669',
     marginTop: 10,
     gap: 6,
   },
-  excelBtnIcon: { fontSize: 14 },
-  excelBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
+  excelBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 
   // Results Section
   resultsSection: { marginTop: 20 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937', marginBottom: 12, paddingHorizontal: 4 },
 
-  // Result Card
+  // Result Card — marginBottom buraya değil swipeContainer'a taşındı
   resultCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
     padding: 14,
     borderRadius: 14,
-    marginBottom: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
   },
   resultCardPending: {
     backgroundColor: '#fffbeb',
@@ -557,29 +566,38 @@ const styles = StyleSheet.create({
   statBlank: { fontSize: 13, fontWeight: 'bold', color: '#9ca3af' },
   resultScore: { fontSize: 14, color: '#2563eb', fontWeight: 'bold', marginTop: 4 },
 
-  chevron: { fontSize: 22, color: '#d1d5db', fontWeight: 'bold' },
 
   // Empty results
   emptyResultsBox: { alignItems: 'center', paddingVertical: 30 },
-  emptyResultsIcon: { fontSize: 36, marginBottom: 10 },
-  emptyResultsText: { fontSize: 16, fontWeight: '600', color: '#6b7280' },
-  emptyResultsSubtext: { fontSize: 13, color: '#9ca3af', marginTop: 4 },
+  emptyResultsIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 18,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  emptyResultsText: { fontSize: 16, fontWeight: '600', color: '#6B7280' },
+  emptyResultsSubtext: { fontSize: 13, color: '#9CA3AF', marginTop: 4 },
 
-  // Swipeable
+  // Swipeable — shadow burada, resultCard'da değil
   swipeContainer: {
     marginBottom: 10,
-    backgroundColor: '#fff',
     borderRadius: 14,
     overflow: 'hidden',
-    position: 'relative',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
   },
   deleteBackground: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#dc2626',
+    backgroundColor: '#DC2626',
     justifyContent: 'center',
     alignItems: 'flex-end',
-    paddingRight: 20,
-    borderRadius: 14,
+    paddingRight: 24,
   },
   deleteText: {
     color: '#fff',

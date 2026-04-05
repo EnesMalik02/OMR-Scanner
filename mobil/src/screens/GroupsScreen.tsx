@@ -3,68 +3,65 @@ import {
   View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, Alert, Modal, StatusBar,
 } from 'react-native';
+import {
+  FolderOpen, Pencil, Trash2, Plus, CheckCircle, AlertCircle, FileText,
+} from 'lucide-react-native';
 import { useStore } from '../store/useStore';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Groups'>;
 
+const AVATAR_COLORS = [
+  '#F4511E', '#0EA5E9', '#8B5CF6', '#10B981',
+  '#F59E0B', '#EC4899', '#14B8A6', '#6366F1',
+];
+const getAvatarColor = (name: string) => {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+};
+
 export const GroupsScreen = ({ navigation }: Props) => {
   const { groups, addGroup, removeGroup, updateGroupName } = useStore();
   const [showModal, setShowModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [questionCount, setQuestionCount] = useState('20');
-
-  // Edit name state
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editGroupId, setEditGroupId] = useState('');
   const [editName, setEditName] = useState('');
 
   const handleAddGroup = () => {
-    if (!newGroupName.trim()) {
-      Alert.alert('Uyarı', 'Grup adı boş olamaz.');
-      return;
-    }
+    if (!newGroupName.trim()) { Alert.alert('Uyarı', 'Grup adı boş olamaz.'); return; }
     const count = parseInt(questionCount, 10);
     if (isNaN(count) || count < 1 || count > 30) {
-      Alert.alert('Hata', 'Soru sayısı 1 ile 30 arasında olmalıdır.');
-      return;
+      Alert.alert('Hata', 'Soru sayısı 1 ile 30 arasında olmalıdır.'); return;
     }
     addGroup(newGroupName.trim(), count);
-    setNewGroupName('');
-    setQuestionCount('20');
-    setShowModal(false);
+    setNewGroupName(''); setQuestionCount('20'); setShowModal(false);
   };
 
   const handleDelete = (item: any) => {
-    Alert.alert(
-      'Grubu Sil',
-      `"${item.name}" grubunu ve tüm tarama sonuçlarını silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz.`,
-      [
-        { text: 'İptal', style: 'cancel' },
-        { text: 'Evet, Sil', style: 'destructive', onPress: () => removeGroup(item.id) },
-      ]
-    );
+    Alert.alert('Grubu Sil', `"${item.name}" grubunu silmek istediğinize emin misiniz?`, [
+      { text: 'İptal', style: 'cancel' },
+      { text: 'Sil', style: 'destructive', onPress: () => removeGroup(item.id) },
+    ]);
   };
 
   const handleEditName = (item: any) => {
-    setEditGroupId(item.id);
-    setEditName(item.name);
-    setEditModalVisible(true);
+    setEditGroupId(item.id); setEditName(item.name); setEditModalVisible(true);
   };
 
   const handleSaveEditName = () => {
-    if (!editName.trim()) {
-      Alert.alert('Uyarı', 'Grup adı boş olamaz.');
-      return;
-    }
-    updateGroupName(editGroupId, editName.trim());
-    setEditModalVisible(false);
+    if (!editName.trim()) { Alert.alert('Uyarı', 'Grup adı boş olamaz.'); return; }
+    updateGroupName(editGroupId, editName.trim()); setEditModalVisible(false);
   };
 
   const renderGroupItem = ({ item }: { item: any }) => {
     const resultCount = item.results?.length || 0;
     const hasAnswerKey = Object.keys(item.answerKey || {}).length > 0;
+    const avatarColor = getAvatarColor(item.name);
+    const initials = item.name.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase();
 
     return (
       <TouchableOpacity
@@ -73,35 +70,46 @@ export const GroupsScreen = ({ navigation }: Props) => {
         activeOpacity={0.7}
       >
         <View style={styles.cardTop}>
-          <View style={styles.cardIcon}>
-            <Text style={styles.cardIconText}>📋</Text>
+          <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
+            <Text style={styles.avatarText}>{initials}</Text>
           </View>
           <View style={styles.cardInfo}>
             <Text style={styles.groupTitle} numberOfLines={1}>{item.name}</Text>
-            <Text style={styles.groupMeta}>{item.questionCount} Soru • {new Date(item.createdAt).toLocaleDateString('tr-TR')}</Text>
+            <Text style={styles.groupMeta}>
+              {item.questionCount} Soru  ·  {new Date(item.createdAt).toLocaleDateString('tr-TR')}
+            </Text>
           </View>
           <View style={styles.cardActions}>
-            <TouchableOpacity style={styles.cardActionBtn} onPress={() => handleEditName(item)}>
-              <Text style={styles.cardActionIcon}>✏️</Text>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => handleEditName(item)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Pencil size={17} color="#9CA3AF" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.cardActionBtn} onPress={() => handleDelete(item)}>
-              <Text style={styles.cardActionIcon}>🗑️</Text>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => handleDelete(item)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Trash2 size={17} color="#9CA3AF" />
             </TouchableOpacity>
           </View>
         </View>
 
         <View style={styles.cardBottom}>
           <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-              {resultCount} Tarama
-            </Text>
+            <FileText size={11} color="#6B7280" style={{ marginRight: 4 }} />
+            <Text style={styles.badgeText}>{resultCount} Tarama</Text>
           </View>
           {hasAnswerKey ? (
             <View style={[styles.badge, styles.badgeGreen]}>
-              <Text style={[styles.badgeText, styles.badgeGreenText]}>Cevap Anahtarı ✓</Text>
+              <CheckCircle size={11} color="#059669" style={{ marginRight: 4 }} />
+              <Text style={[styles.badgeText, styles.badgeGreenText]}>Cevap Anahtarı Hazır</Text>
             </View>
           ) : (
             <View style={[styles.badge, styles.badgeOrange]}>
+              <AlertCircle size={11} color="#D97706" style={{ marginRight: 4 }} />
               <Text style={[styles.badgeText, styles.badgeOrangeText]}>Cevap Anahtarı Yok</Text>
             </View>
           )}
@@ -112,15 +120,16 @@ export const GroupsScreen = ({ navigation }: Props) => {
 
   return (
     <View style={styles.container}>
-      <StatusBar backgroundColor="#f4511e" barStyle="light-content" />
-
+      <StatusBar backgroundColor="#FFFFFF" barStyle="dark-content" />
       <FlatList
         data={groups}
         keyExtractor={(item) => item.id}
         renderItem={renderGroupItem}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>📂</Text>
+            <View style={styles.emptyIconWrap}>
+              <FolderOpen size={44} color="#D1D5DB" />
+            </View>
             <Text style={styles.emptyTitle}>Henüz grubunuz yok</Text>
             <Text style={styles.emptySubtext}>Aşağıdaki butona basarak ilk grubunuzu oluşturun.</Text>
           </View>
@@ -128,96 +137,57 @@ export const GroupsScreen = ({ navigation }: Props) => {
         contentContainerStyle={styles.listContainer}
       />
 
-      {/* FAB - Grup Oluştur */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => setShowModal(true)}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.fabIcon}>+</Text>
+      <TouchableOpacity style={styles.fab} onPress={() => setShowModal(true)} activeOpacity={0.85}>
+        <Plus size={20} color="#fff" strokeWidth={2.5} />
         <Text style={styles.fabText}>Grup Oluştur</Text>
       </TouchableOpacity>
 
-      {/* Yeni Grup Oluşturma Modal */}
-      <Modal
-        visible={showModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+      {/* Yeni Grup Modal */}
+      <Modal visible={showModal} transparent animationType="fade" onRequestClose={() => setShowModal(false)}>
+        <View style={styles.overlay}>
+          <View style={styles.modal}>
             <Text style={styles.modalTitle}>Yeni Grup Oluştur</Text>
-
             <Text style={styles.inputLabel}>Grup / Sınıf Adı</Text>
             <TextInput
-              style={styles.modalInput}
-              placeholder="Örn: 10-A Matematik"
-              value={newGroupName}
-              onChangeText={setNewGroupName}
-              autoFocus
+              style={styles.input} placeholder="Örn: 10-A Matematik"
+              placeholderTextColor="#9CA3AF" value={newGroupName}
+              onChangeText={setNewGroupName} autoFocus
             />
-
             <Text style={styles.inputLabel}>Soru Sayısı</Text>
             <TextInput
-              style={styles.modalInput}
-              placeholder="1 - 30"
-              value={questionCount}
-              onChangeText={setQuestionCount}
-              keyboardType="numeric"
-              maxLength={2}
+              style={styles.input} placeholder="1 – 30" placeholderTextColor="#9CA3AF"
+              value={questionCount} onChangeText={setQuestionCount}
+              keyboardType="numeric" maxLength={2}
             />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.modalCancel}
-                onPress={() => {
-                  setShowModal(false);
-                  setNewGroupName('');
-                  setQuestionCount('20');
-                }}
-              >
-                <Text style={styles.modalCancelText}>İptal</Text>
+            <View style={styles.modalBtns}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => { setShowModal(false); setNewGroupName(''); setQuestionCount('20'); }}>
+                <Text style={styles.cancelBtnText}>İptal</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity style={styles.modalConfirm} onPress={handleAddGroup}>
-                <Text style={styles.modalConfirmText}>Oluştur</Text>
+              <TouchableOpacity style={styles.confirmBtn} onPress={handleAddGroup}>
+                <Text style={styles.confirmBtnText}>Oluştur</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* İsim Düzenleme Modal */}
-      <Modal
-        visible={editModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setEditModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+      {/* Düzenleme Modal */}
+      <Modal visible={editModalVisible} transparent animationType="fade" onRequestClose={() => setEditModalVisible(false)}>
+        <View style={styles.overlay}>
+          <View style={styles.modal}>
             <Text style={styles.modalTitle}>Grup Adını Düzenle</Text>
-
             <Text style={styles.inputLabel}>Yeni Grup Adı</Text>
             <TextInput
-              style={styles.modalInput}
-              placeholder="Grup adı..."
-              value={editName}
-              onChangeText={setEditName}
-              autoFocus
+              style={styles.input} placeholder="Grup adı..."
+              placeholderTextColor="#9CA3AF" value={editName}
+              onChangeText={setEditName} autoFocus
             />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.modalCancel}
-                onPress={() => setEditModalVisible(false)}
-              >
-                <Text style={styles.modalCancelText}>İptal</Text>
+            <View style={styles.modalBtns}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditModalVisible(false)}>
+                <Text style={styles.cancelBtnText}>İptal</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity style={styles.modalConfirm} onPress={handleSaveEditName}>
-                <Text style={styles.modalConfirmText}>Kaydet</Text>
+              <TouchableOpacity style={styles.confirmBtn} onPress={handleSaveEditName}>
+                <Text style={styles.confirmBtnText}>Kaydet</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -228,119 +198,60 @@ export const GroupsScreen = ({ navigation }: Props) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f0f2f5' },
+  container: { flex: 1, backgroundColor: '#F7F8FA' },
   listContainer: { padding: 16, paddingBottom: 100 },
 
-  // Group Card
   groupCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 14,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
+    backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, marginBottom: 12,
+    shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 }, elevation: 3,
   },
   cardTop: { flexDirection: 'row', alignItems: 'center' },
-  cardIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: '#fff3ed',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  cardIconText: { fontSize: 22 },
+  avatar: { width: 46, height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  avatarText: { color: '#fff', fontWeight: '800', fontSize: 16, letterSpacing: 0.5 },
   cardInfo: { flex: 1 },
-  groupTitle: { fontSize: 17, fontWeight: 'bold', color: '#1f2937' },
-  groupMeta: { fontSize: 13, color: '#9ca3af', marginTop: 2 },
-  cardActions: { flexDirection: 'row', gap: 4 },
-  cardActionBtn: { padding: 6 },
-  cardActionIcon: { fontSize: 16 },
+  groupTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
+  groupMeta: { fontSize: 13, color: '#9CA3AF', marginTop: 3 },
+  cardActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  iconBtn: { padding: 6 },
 
-  cardBottom: { flexDirection: 'row', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
-  badge: {
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
+  cardBottom: {
+    flexDirection: 'row', gap: 8, marginTop: 12,
+    paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6', flexWrap: 'wrap',
   },
-  badgeText: { fontSize: 12, color: '#6b7280', fontWeight: '600' },
-  badgeGreen: { backgroundColor: '#dcfce7' },
-  badgeGreenText: { color: '#16a34a' },
-  badgeOrange: { backgroundColor: '#fff7ed' },
-  badgeOrangeText: { color: '#ea580c' },
+  badge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+  badgeText: { fontSize: 12, color: '#6B7280', fontWeight: '600' },
+  badgeGreen: { backgroundColor: '#ECFDF5' },
+  badgeGreenText: { color: '#059669' },
+  badgeOrange: { backgroundColor: '#FFFBEB' },
+  badgeOrangeText: { color: '#D97706' },
 
-  // Empty State
-  emptyContainer: { alignItems: 'center', paddingTop: 80 },
-  emptyIcon: { fontSize: 48, marginBottom: 16 },
-  emptyTitle: { fontSize: 20, fontWeight: 'bold', color: '#374151', marginBottom: 8 },
-  emptySubtext: { fontSize: 14, color: '#9ca3af', textAlign: 'center', lineHeight: 22 },
+  emptyContainer: { alignItems: 'center', paddingTop: 80, paddingHorizontal: 32 },
+  emptyIconWrap: { width: 96, height: 96, borderRadius: 24, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+  emptyTitle: { fontSize: 20, fontWeight: '700', color: '#374151', marginBottom: 8 },
+  emptySubtext: { fontSize: 14, color: '#9CA3AF', textAlign: 'center', lineHeight: 22 },
 
-  // FAB
   fab: {
-    position: 'absolute',
-    bottom: 24,
-    left: 24,
-    right: 24,
-    backgroundColor: '#f4511e',
-    borderRadius: 16,
-    paddingVertical: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#f4511e',
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    position: 'absolute', bottom: 24, left: 20, right: 20,
+    backgroundColor: '#F4511E', borderRadius: 16, paddingVertical: 15,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    shadowColor: '#F4511E', shadowOpacity: 0.35, shadowRadius: 14,
+    shadowOffset: { width: 0, height: 5 }, elevation: 8,
   },
-  fabIcon: { fontSize: 22, color: '#fff', fontWeight: 'bold', marginRight: 8 },
-  fabText: { color: '#fff', fontWeight: 'bold', fontSize: 17 },
+  fabText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', paddingHorizontal: 20 },
+  modal: { backgroundColor: '#fff', borderRadius: 20, padding: 24 },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 20 },
+  inputLabel: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 },
+  input: {
+    backgroundColor: '#F9FAFB', borderWidth: 1.5, borderColor: '#E5E7EB',
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 15, color: '#111827', marginBottom: 14,
   },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 24,
-  },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937', marginBottom: 20, textAlign: 'center' },
-  inputLabel: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 6 },
-  modalInput: {
-    backgroundColor: '#f9fafb',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#1f2937',
-    marginBottom: 16,
-  },
-  modalActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
-  modalCancel: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-    backgroundColor: '#f3f4f6',
-  },
-  modalCancelText: { color: '#6b7280', fontWeight: 'bold', fontSize: 16 },
-  modalConfirm: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-    backgroundColor: '#f4511e',
-  },
-  modalConfirmText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  modalBtns: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  cancelBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center', backgroundColor: '#F3F4F6' },
+  cancelBtnText: { color: '#6B7280', fontWeight: '700', fontSize: 15 },
+  confirmBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center', backgroundColor: '#F4511E' },
+  confirmBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 });

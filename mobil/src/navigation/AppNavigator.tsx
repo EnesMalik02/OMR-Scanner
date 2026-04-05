@@ -25,15 +25,17 @@ export const AppNavigator = () => {
       <Stack.Navigator
         initialRouteName="Groups"
         screenOptions={{
-          headerStyle: { backgroundColor: '#f4511e' },
-          headerTintColor: '#fff',
-          headerTitleStyle: { fontWeight: 'bold' },
+          headerStyle: { backgroundColor: '#FFFFFF' },
+          headerTintColor: '#111827',
+          headerTitleStyle: { fontWeight: '700', fontSize: 17 },
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: '#F7F8FA' },
         }}
       >
         <Stack.Screen
           name="Groups"
           component={GroupsScreen}
-          options={{ title: 'Sınıflarım / Gruplarım' }}
+          options={{ title: 'Gruplarım' }}
         />
         <Stack.Screen
           name="GroupDetail"
