@@ -51,30 +51,67 @@ def _ocr_lang() -> str:
 
 
 def _ocr_field(crop_gray: np.ndarray, lang: str) -> str:
-    bordered = cv2.copyMakeBorder(crop_gray, 20, 20, 20, 20,
+    # Daha geniş kenar — bağlamı korur
+    bordered = cv2.copyMakeBorder(crop_gray, 30, 30, 30, 30,
                                   cv2.BORDER_CONSTANT, value=255)
-    up = cv2.resize(bordered, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+
+    # 4× büyütme: daha yüksek efektif DPI
+    up = cv2.resize(bordered, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
+
+    # Koyu zemin → çevir
     if np.mean(up) < 127:
         up = cv2.bitwise_not(up)
-    _, bin_otsu = cv2.threshold(up, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # Kenar korumalı gürültü azaltma
+    denoised = cv2.bilateralFilter(up, 9, 75, 75)
+
+    # Kontrast iyileştirme (CLAHE) — eşit olmayan aydınlatmayı dengeler
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(denoised)
+
+    # Otsu eşikleme — baskılı / blok harfler için güçlü
+    _, otsu = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # Adaptif eşikleme — el yazısı ve eşit olmayan aydınlatma için güçlü
+    adaptive = cv2.adaptiveThreshold(
+        enhanced, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,
+        51, 10
+    )
+
+    # İnce vuruşları kalınlaştır (adaptif varyant)
+    kernel = np.ones((2, 2), np.uint8)
+    inv = cv2.bitwise_not(adaptive)
+    adaptive_dilated = cv2.bitwise_not(cv2.dilate(inv, kernel, iterations=1))
 
     best, best_score = "", 0
-    for img_try in (up, bin_otsu):
-        pil = Image.fromarray(img_try)
+
+    def _try(img: np.ndarray, oem: int):
+        nonlocal best, best_score
+        pil = Image.fromarray(img)
         for psm in (7, 13):
             try:
                 raw = pytesseract.image_to_string(
-                    pil, lang=lang, config=f"--psm {psm} --oem 3"
+                    pil, lang=lang,
+                    config=f"--psm {psm} --oem {oem} --dpi 300"
                 )
             except Exception:
                 continue
-            cleaned = re.sub(
-                r"[^a-zA-Z0-9\sğüşıöçĞÜŞİÖÇ\.\,\-\_\/]", "", raw
-            ).strip()
+            # İsim alanı: yalnızca harf ve boşluk
+            cleaned = re.sub(r"[^a-zA-ZğüşıöçĞÜŞİÖÇ\s]", "", raw)
             cleaned = re.sub(r"\s+", " ", cleaned).strip()
-            score = sum(1 for c in cleaned if c.isalnum())
+            score = sum(1 for c in cleaned if c.isalpha())
             if score > best_score:
                 best_score, best = score, cleaned
+
+    # Birincil: LSTM motoru (OEM 1) — tüm varyantlarla
+    for variant in (adaptive, adaptive_dilated, otsu, enhanced, up):
+        _try(variant, oem=1)
+
+    # Geri dönüş: varsayılan motor (OEM 3) — yeterli sonuç yoksa
+    if best_score < 2:
+        for variant in (adaptive, otsu):
+            _try(variant, oem=3)
 
     return best if best_score >= 1 else "Okunamadı"
 
