@@ -101,6 +101,7 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
   const { groupId } = route.params;
   const { groups, addStudentResult, updateStudentResult, removeStudentResult } = useStore();
   const processedUriRef = useRef<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   const group = groups.find(g => g.id === groupId);
 
@@ -215,6 +216,8 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
   };
 
   const handleDownloadForm = async () => {
+    if (downloading) return;
+    setDownloading(true);
     try {
       if (Platform.OS === 'android') {
         const permission = Number(Platform.Version) >= 33
@@ -223,6 +226,7 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
         const granted = await PermissionsAndroid.request(permission);
         if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
           Alert.alert('İzin Reddedildi', 'Galeriye kaydetmek için depolama izni gereklidir.');
+          setDownloading(false);
           return;
         }
       }
@@ -243,6 +247,8 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
       }
     } catch (e: any) {
       Alert.alert('Hata', e.message || 'Resim kaydedilemedi.');
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -359,9 +365,16 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.downloadBtn} onPress={handleDownloadForm} activeOpacity={0.75}>
-          <Download size={16} color="#F4511E" />
-          <Text style={styles.downloadBtnText}>Optik Formu İndir</Text>
+        <TouchableOpacity
+          style={[styles.downloadBtn, downloading && styles.downloadBtnDisabled]}
+          onPress={handleDownloadForm}
+          activeOpacity={0.75}
+          disabled={downloading}
+        >
+          {downloading
+            ? <ActivityIndicator size="small" color="#F4511E" />
+            : <Download size={16} color="#F4511E" />}
+          <Text style={styles.downloadBtnText}>{downloading ? 'İndiriliyor...' : 'Optik Formu İndir'}</Text>
         </TouchableOpacity>
 
         {completedResults.length > 0 && (
@@ -492,6 +505,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   downloadBtnText: { color: '#F4511E', fontWeight: '700', fontSize: 14 },
+  downloadBtnDisabled: { opacity: 0.5 },
   excelBtn: {
     flexDirection: 'row',
     alignItems: 'center',
