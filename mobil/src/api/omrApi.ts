@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
+import ImageResizer from 'react-native-image-resizer';
 import { BackendSchema, ScanResult } from '../types';
 
 // Android Emulator uses 10.0.2.2 for localhost, iOS uses 127.0.0.1
@@ -26,11 +27,21 @@ export const processForm = async (
   signal?: AbortSignal,
 ): Promise<ScanResult> => {
   try {
+    // Görseli yüklemeden önce boyutlandır: en fazla 1600×2133, %82 kalite
+    const resized = await ImageResizer.createResizedImage(
+      imageUri,
+      1600,
+      2133,
+      'JPEG',
+      65,
+      0,
+    );
+
     const formData = new FormData();
-    const filename = imageUri.split('/').pop() || 'photo.jpg';
+    const filename = resized.name || 'photo.jpg';
 
     formData.append('file', {
-      uri: Platform.OS === 'ios' ? imageUri.replace('file://', '') : imageUri,
+      uri: Platform.OS === 'ios' ? resized.uri.replace('file://', '') : resized.uri,
       name: filename,
       type: 'image/jpeg',
     } as any);
