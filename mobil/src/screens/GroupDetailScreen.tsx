@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, Platform, ScrollView, Animated, PanResponder, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, Platform, ScrollView, Animated, PanResponder, Dimensions, ActivityIndicator, PermissionsAndroid } from 'react-native';
 import {
   BookOpen, Key, Camera, Download, FileSpreadsheet, ChevronRight,
   CheckCircle, AlertCircle, FileText, FileX,
@@ -16,7 +16,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'GroupDetail'>;
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
-const AVATAR_COLORS = ['#F4511E','#0EA5E9','#8B5CF6','#10B981','#F59E0B','#EC4899','#14B8A6','#6366F1'];
+const AVATAR_COLORS = ['#F4511E', '#0EA5E9', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899', '#14B8A6', '#6366F1'];
 const getAvatarColor = (name: string) => {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
@@ -146,8 +146,16 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
   };
 
   const processFormInBackground = async (imageUri: string, pendingId: string) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+      removeStudentResult(group.id, pendingId);
+    }, 60_000);
+
     try {
-      const res = await processForm(imageUri, group.questionCount);
+      const res = await processForm(imageUri, group.questionCount, controller.signal);
+
+      clearTimeout(timeoutId);
 
       if (res.error || res.status === 'error') {
         updateStudentResult(group.id, pendingId, {
@@ -195,6 +203,10 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
         pending: false,
       });
     } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
+        return; // already removed by timeout handler
+      }
       updateStudentResult(group.id, pendingId, {
         name: 'Bağlantı Hatası',
         pending: false,

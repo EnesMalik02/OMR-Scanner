@@ -20,35 +20,30 @@ export const fetchSchema = async (questionCount: number = 20): Promise<BackendSc
   }
 };
 
-export const processForm = async (imageUri: string, questionCount: number = 20): Promise<ScanResult> => {
+export const processForm = async (
+  imageUri: string,
+  questionCount: number = 20,
+  signal?: AbortSignal,
+): Promise<ScanResult> => {
   try {
     const formData = new FormData();
-
-    // Append image to form data
     const filename = imageUri.split('/').pop() || 'photo.jpg';
 
-    // We cast to any because TS's fetch/axios FormData types don't always align with RN exactly
-    // In React Native, FormData accepts an object with uri, type, and name
     formData.append('file', {
       uri: Platform.OS === 'ios' ? imageUri.replace('file://', '') : imageUri,
       name: filename,
       type: 'image/jpeg',
     } as any);
-
-    // Add question_count exactly as expected by backend Form(...) field
     formData.append('question_count', questionCount.toString());
 
     const response = await api.post<ScanResult>('/process', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      headers: { 'Content-Type': 'multipart/form-data' },
+      signal,
     });
 
     return response.data;
   } catch (error: any) {
-    console.error('Error processing form:', error);
     if (error.response) {
-      // Return the error from the backend instead of breaking
       return { status: 'error', error: error.response.data.error || 'Server error', answers: {}, student_info: { name: '', student_number: '' }, metadata: {} };
     }
     throw error;
