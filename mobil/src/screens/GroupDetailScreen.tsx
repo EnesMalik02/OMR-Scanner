@@ -105,6 +105,19 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
 
   const group = groups.find(g => g.id === groupId);
 
+  // Zombi (askıda kalmış) taramaları temizle
+  useEffect(() => {
+    if (!group) return;
+    const now = Date.now();
+    // 90 saniyeden fazla süredir pending olanlar zombi sayılır (uygulama kapanmış vs olabilir)
+    const zombies = (group.results || []).filter(
+      (r: any) => r.pending && (now - (r.scannedAt || 0)) > 90000
+    );
+    zombies.forEach((zombie: any) => {
+      removeStudentResult(group.id, zombie.id);
+    });
+  }, [group?.id]);
+
   // Kamera ekranından dönen fotoğrafı al ve işle
   useEffect(() => {
     const uri = route.params.capturedImageUri;
@@ -177,7 +190,7 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
         const correctAns = answerKey[qNo];
         if (!userAns || userAns === 'Boş') {
           blank++;
-        } else if (userAns.includes(',')) {
+        } else if (typeof userAns === 'string' && userAns.includes(',')) {
           wrong++;
         } else if (userAns === correctAns) {
           correct++;
@@ -205,8 +218,10 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
       });
     } catch (err: any) {
       clearTimeout(timeoutId);
-      if (err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
-        return; // already removed by timeout handler
+      if (err.name === 'AbortError' || err.code === 'ERR_CANCELED' || err.message === 'canceled') {
+        // Eğer ağ bağlantısı vs sebebiyle erken iptal edildiyse listede asılı kalmaması için.
+        removeStudentResult(group.id, pendingId);
+        return;
       }
       updateStudentResult(group.id, pendingId, {
         name: 'Bağlantı Hatası',
