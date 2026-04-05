@@ -180,15 +180,15 @@ async def get_schema(question_count: int = 20):
             "label":          "Öğrenci Numarası",
             "digit_count":    9,
             "x_start":        0.551,   # ilk sütun merkezi
-            "x_step":         0.042,   # sütunlar arası mesafe
-            "col_half_w":     0.021,   # mini-grid yarı genişliği (x_step/2)
-            "y_label":        0.069,   # başlık metni y
-            "y_grid_top":     0.078,   # dikdörtgen üst kenarı
-            "y_box_bottom":   0.108,   # el yazısı kutu alt kenarı / ayırıcı çizgi
-            "y_circle_start": 0.117,   # satır-0 daire merkezi
-            "y_circle_step":  0.0114,  # satırlar arası (≈16 px)
-            "y_grid_bottom":  0.228,   # dikdörtgen alt kenarı
-            "bubble_radius":  0.010,   # daire yarıçapı oranı
+            "x_step":         0.028,   # sütunlar arası mesafe
+            "col_half_w":     0.014,   # mini-grid yarı genişliği (x_step/2)
+            "y_label":        0.060,   # başlık metni y
+            "y_grid_top":     0.090,   # dikdörtgen üst kenarı
+            "y_box_bottom":   0.110,   # el yazısı kutu alt kenarı / ayırıcı çizgi
+            "y_circle_start": 0.120,   # satır-0 daire merkezi
+            "y_circle_step":  0.0130,  # satırlar arası (≈18 px)
+            "y_grid_bottom":  0.246,   # dikdörtgen alt kenarı
+            "bubble_radius":  0.007,   # daire yarıçapı oranı
         },
         "separator_y": 0.250,          # öğrenci bilgisi / soru bölgesi ayırıcısı
         "questions": questions,
@@ -305,8 +305,7 @@ async def generate_form(question_count: int = 20):
 
     f_lbl   = _get_font(22)   # alan etiketi (İsim)
     f_title = _get_font(17)   # bölüm başlığı (Öğrenci Numarası)
-    f_pos   = _get_font(12)   # sütun pozisyon numaraları (gri)
-    f_row   = _get_font(12)   # satır rakam etiketleri (0-9)
+    f_row   = _get_font(8)    # grid içi rakam etiketleri (0-9)
 
     # İsim etiketi — kutunun soluna yaslanır
     for field in schema["fields"]:
@@ -326,23 +325,12 @@ async def generate_form(question_count: int = 20):
     ttl_y  = int(sn["y_label"] * H)
     draw.text((ttl_x, ttl_y), sn["label"], font=f_title, fill=(0, 0, 0))
 
-    # Sütun pozisyon numaraları (1–9) — el yazısı kutusu içinde, gri
+    # Her sütundaki circle'ların içine 0–9 rakamlarını yaz
     for col in range(sn_dc):
-        cx   = int((sn_xs + col * sn_xstp) * W)
-        lbl  = str(col + 1)
-        lw, lh = _text_wh(f_pos, lbl)
-        box_h = sn_y_bd - sn_y_gt
-        draw.text((cx - lw // 2, sn_y_gt + (box_h - lh) // 2),
-                  lbl, font=f_pos, fill=(160, 160, 160))
-
-    # Satır rakam etiketleri (0–9) — ilk sütunun soluna
-    first_col_l = int((sn_xs - sn_chw) * W)
-    for row in range(10):
-        cy   = int((sn_y_cs + row * sn_y_cst) * H)
-        lbl  = str(row)
-        rw, rh = _text_wh(f_row, lbl)
-        draw.text((first_col_l - rw - 5, cy - rh // 2),
-                  lbl, font=f_row, fill=(0, 0, 0))
+        cx = int((sn_xs + col * sn_xstp) * W)
+        for row in range(10):
+            cy = int((sn_y_cs + row * sn_y_cst) * H)
+            draw.text((cx, cy), str(row), font=f_row, anchor="mm", fill=(0, 0, 0))
 
     img = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
 
@@ -575,4 +563,4 @@ async def process_form(
 
 
 # Uygulamayı çalıştırmak için:
-# uvicorn src.main:app --reload
+# uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
