@@ -88,6 +88,17 @@ export const useStore = create<StoreState>()(
     {
       name: 'omr-storage',
       storage: createJSONStorage(() => AsyncStorage),
+      version: 1,
+      migrate: (persistedState: any, fromVersion: number) => {
+        // Eski veriyi olduğu gibi koru, eksik alanları varsayılanla doldur
+        return {
+          groups: (persistedState?.groups ?? []).map((g: any) => ({
+            answerKey: {},
+            results: [],
+            ...g,
+          })),
+        };
+      },
     }
   )
 );

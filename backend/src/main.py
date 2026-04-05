@@ -121,10 +121,9 @@ app = FastAPI(title="OMR Backend API", description="SaaS tabanlı Optik Okuyucu 
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 1. Şema Endpoint'i
+# Yardımcı: form şemasını döndürür (dahili kullanım)
 # ──────────────────────────────────────────────────────────────────────────────
 
-@app.get("/schema")
 async def get_schema(question_count: int = 20):
     """
     Form düzenini tanımlar.

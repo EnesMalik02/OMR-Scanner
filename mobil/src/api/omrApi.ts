@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
 import ImageResizer from 'react-native-image-resizer';
-import { BackendSchema, ScanResult } from '../types';
+import { ScanResult } from '../types';
 
 // Android Emulator uses 10.0.2.2 for localhost, iOS uses 127.0.0.1
 export const API_BASE_URL = 'https://omr-scanner-jsc8.onrender.com';
@@ -11,15 +11,6 @@ const api = axios.create({
   baseURL: API_BASE_URL,
 });
 
-export const fetchSchema = async (questionCount: number = 20): Promise<BackendSchema> => {
-  try {
-    const response = await api.get<BackendSchema>(`/schema?question_count=${questionCount}`);
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching schema:', error);
-    throw error;
-  }
-};
 
 export const processForm = async (
   imageUri: string,

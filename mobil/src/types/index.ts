@@ -20,25 +20,6 @@ export interface Group {
   createdAt: number;
 }
 
-export interface OptionSchema {
-  val: string;
-  x: number;
-  y: number;
-}
-
-export interface QuestionSchema {
-  q_no: number;
-  options: OptionSchema[];
-}
-
-export interface BackendSchema {
-  template_id: string;
-  base_aspect_ratio: number;
-  anchors: any[];
-  fields: any[];
-  questions: QuestionSchema[];
-  metadata: any;
-}
 
 export interface ScanResult {
   status: string;
