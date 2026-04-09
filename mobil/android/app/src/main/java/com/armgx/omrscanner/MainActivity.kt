@@ -1,4 +1,4 @@
-package com.qr
+package com.armgx.omrscanner
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

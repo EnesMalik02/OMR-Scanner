@@ -1,4 +1,4 @@
-package com.qr
+package com.armgx.omrscanner
 
 import android.app.Application
 import com.facebook.react.PackageList
