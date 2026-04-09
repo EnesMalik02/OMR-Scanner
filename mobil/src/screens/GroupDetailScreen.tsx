@@ -137,6 +137,20 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
   }
 
   const handleScan = () => {
+    const answerKey = group.answerKey || {};
+    const filledCount = Object.keys(answerKey).filter(k => answerKey[k]).length;
+    if (filledCount < group.questionCount) {
+      const missing = group.questionCount - filledCount;
+      Alert.alert(
+        'Cevap Anahtarı Eksik',
+        `Tarama yapabilmek için tüm soruların cevabı girilmiş olmalıdır.\n\n${missing} soru cevabı eksik.`,
+        [
+          { text: 'Cevap Anahtarına Git', onPress: () => navigation.navigate('ExamConfig', { exam: group as any }) },
+          { text: 'Vazgeç', style: 'cancel' },
+        ],
+      );
+      return;
+    }
     navigation.navigate('Camera', {
       groupId: group.id,
       groupName: group.name,
@@ -324,7 +338,9 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
     .filter((r: any) => !r.pending)
     .sort((a: any, b: any) => (b.scannedAt || 0) - (a.scannedAt || 0));
   const pendingResults = (group.results || []).filter((r: any) => r.pending);
-  const hasAnswerKey = Object.keys(group.answerKey || {}).length > 0;
+  const answerKeyFilled = Object.keys(group.answerKey || {}).filter(k => (group.answerKey || {})[k]).length;
+  const hasAnswerKey = answerKeyFilled > 0;
+  const answerKeyComplete = answerKeyFilled >= group.questionCount;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
@@ -341,10 +357,15 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
         </View>
 
         <View style={styles.statusRow}>
-          {hasAnswerKey ? (
+          {answerKeyComplete ? (
             <View style={[styles.statusBadge, styles.statusGreen]}>
               <CheckCircle size={12} color="#059669" style={{ marginRight: 4 }} />
               <Text style={styles.statusGreenText}>Cevap Anahtarı Hazır</Text>
+            </View>
+          ) : hasAnswerKey ? (
+            <View style={[styles.statusBadge, styles.statusOrange]}>
+              <AlertCircle size={12} color="#D97706" style={{ marginRight: 4 }} />
+              <Text style={styles.statusOrangeText}>Cevap Anahtarı Eksik ({answerKeyFilled}/{group.questionCount})</Text>
             </View>
           ) : (
             <View style={[styles.statusBadge, styles.statusOrange]}>
@@ -372,7 +393,7 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.actionBtn, styles.scanBtn]}
+            style={[styles.actionBtn, styles.scanBtn, !answerKeyComplete && styles.scanBtnDisabled]}
             onPress={handleScan}
             activeOpacity={0.85}
           >
@@ -509,6 +530,7 @@ const styles = StyleSheet.create({
   actionBtnText: { color: '#374151', fontWeight: '700', fontSize: 14 },
   scanBtn: { backgroundColor: '#f4511e', borderColor: '#f4511e' },
   scanBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  scanBtnDisabled: { backgroundColor: '#fca58a', borderColor: '#fca58a' },
   downloadBtn: {
     flexDirection: 'row',
     alignItems: 'center',
