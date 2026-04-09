@@ -8,7 +8,8 @@ export interface StudentResult {
   score: number;
   answers: Record<string, string>;
   scannedAt: number;
-  pending?: boolean; // taranıyor durumu
+  pending?: boolean;
+  formImagePath?: string; // işlenmiş form görselinin yerel yolu
 }
 
 export interface Group {
@@ -30,6 +31,8 @@ export interface ScanResult {
   answers: Record<string, string>;
   metadata: any;
   error?: string;
+  form_image_base64?: string; // transit — processForm tarafından diske kaydedilir
+  formImagePath?: string;     // diske kaydedildikten sonra set edilir
 }
 
 export type Exam = Group;

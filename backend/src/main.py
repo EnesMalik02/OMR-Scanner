@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse, StreamingResponse
+import base64
 import io
 import re
 import cv2
@@ -548,13 +549,15 @@ async def process_form(
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
             answers[str(q["q_no"])] = ",".join(marked)
 
-        # cv2.imwrite("debug_omr_output.jpg", debug_img)
+        _, img_buf = cv2.imencode(".jpg", debug_img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        form_image_b64 = base64.b64encode(img_buf).decode("utf-8")
 
         return {
             "status": "success",
             "student_info": student_info,
             "answers": answers,
             "metadata": {"processed_width": maxW, "processed_height": maxH},
+            "form_image_base64": form_image_b64,
         }
 
     except Exception as e:

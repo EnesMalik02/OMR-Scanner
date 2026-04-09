@@ -215,6 +215,7 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
         score,
         answers: res.answers || {},
         pending: false,
+        formImagePath: res.formImagePath,
       });
     } catch (err: any) {
       clearTimeout(timeoutId);

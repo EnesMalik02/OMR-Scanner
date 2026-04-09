@@ -57,6 +57,7 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
       correct, wrong, blank, score,
       answers: res.answers || {},
       scannedAt: Date.now(),
+      formImagePath: res.formImagePath,
     });
     setSaved(true);
   };

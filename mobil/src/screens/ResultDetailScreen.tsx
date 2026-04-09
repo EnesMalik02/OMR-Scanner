@@ -1,5 +1,8 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  Image, Dimensions,
+} from 'react-native';
 import { CheckCircle2, XCircle, MinusCircle, AlertCircle, Info } from 'lucide-react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -8,10 +11,12 @@ import { useStore } from '../store/useStore';
 type Props = NativeStackScreenProps<RootStackParamList, 'ResultDetail'>;
 
 const CHOICE_LABELS = ['A', 'B', 'C', 'D', 'E'];
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export const ResultDetailScreen = ({ route, navigation }: Props) => {
   const { groupId, resultId } = route.params;
   const { groups } = useStore();
+  const [activeTab, setActiveTab] = useState<'answers' | 'form'>('answers');
 
   const group = groups.find(g => g.id === groupId);
   const result = group?.results?.find(r => r.id === resultId);
@@ -31,11 +36,8 @@ export const ResultDetailScreen = ({ route, navigation }: Props) => {
   const studentAnswers = result.answers || {};
   const questionCount = group.questionCount || 1;
   const hasAnswerData = Object.keys(studentAnswers).length > 0;
-
-  // Score: 100 üzerinden, doğru sayısına göre
   const score = parseFloat(((result.correct / questionCount) * 100).toFixed(2));
 
-  // Build evaluation list
   const evaluation: {
     qNo: string;
     userAns: string;
@@ -49,7 +51,6 @@ export const ResultDetailScreen = ({ route, navigation }: Props) => {
       const qNo = String(i);
       const rawUserAns = studentAnswers[qNo] || '';
       const correctAns = answerKey[qNo] || '-';
-
       let status: 'correct' | 'wrong' | 'blank' | 'multiple' = 'blank';
       let explanation: string | undefined;
       let displayAns = rawUserAns;
@@ -58,7 +59,6 @@ export const ResultDetailScreen = ({ route, navigation }: Props) => {
         status = 'blank';
         displayAns = 'Boş';
       } else if (rawUserAns.includes(',')) {
-        // Multiple answers marked (e.g., "B, A" or "A,C")
         status = 'multiple';
         const parts = rawUserAns.split(',').map(s => s.trim()).filter(Boolean);
         displayAns = parts.join(' ve ');
@@ -68,28 +68,20 @@ export const ResultDetailScreen = ({ route, navigation }: Props) => {
       } else {
         status = 'wrong';
       }
-
       evaluation.push({ qNo, userAns: displayAns, correctAns, status, explanation });
     }
   }
 
   const statusColors: Record<string, string> = {
-    correct: '#16a34a',
-    wrong: '#dc2626',
-    blank: '#9ca3af',
-    multiple: '#d97706',
+    correct: '#16a34a', wrong: '#dc2626', blank: '#9ca3af', multiple: '#d97706',
   };
-
   const StatusIconMap = {
-    correct: CheckCircle2,
-    wrong: XCircle,
-    blank: MinusCircle,
-    multiple: AlertCircle,
+    correct: CheckCircle2, wrong: XCircle, blank: MinusCircle, multiple: AlertCircle,
   };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-      {/* Student Info Card */}
+      {/* Öğrenci Bilgi Kartı */}
       <View style={styles.infoCard}>
         <Text style={styles.studentName}>{result.name}</Text>
         <Text style={styles.studentNo}>Öğrenci No: {result.studentNumber || 'Belirtilmemiş'}</Text>
@@ -113,23 +105,43 @@ export const ResultDetailScreen = ({ route, navigation }: Props) => {
         </View>
       </View>
 
-      {/* Answer Detail Table */}
-      <View style={styles.tableCard}>
-        <Text style={styles.sectionTitle}>Soru Detayları</Text>
+      {/* Tab Bar */}
+      <View style={styles.tabBar}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'answers' && styles.tabActive]}
+          onPress={() => setActiveTab('answers')}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.tabText, activeTab === 'answers' && styles.tabTextActive]}>
+            İşaretledikleri
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'form' && styles.tabActive]}
+          onPress={() => setActiveTab('form')}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.tabText, activeTab === 'form' && styles.tabTextActive]}>
+            Form
+          </Text>
+        </TouchableOpacity>
+      </View>
 
-        {!hasAnswerData ? (
-          <View style={styles.noDataBox}>
-            <Text style={styles.noDataText}>
-              Bu sonuç için detaylı cevap verisi bulunmuyor.{'\n'}
-              Yeni taranan formların detayları burada görünecektir.
-            </Text>
-          </View>
-        ) : (
-          <>
-            {/* Table Rows */}
-            {evaluation.map(item => (
+      {/* Tab İçeriği */}
+      {activeTab === 'answers' ? (
+        <View style={styles.tableCard}>
+          <Text style={styles.sectionTitle}>Soru Detayları</Text>
+
+          {!hasAnswerData ? (
+            <View style={styles.noDataBox}>
+              <Text style={styles.noDataText}>
+                Bu sonuç için detaylı cevap verisi bulunmuyor.{'\n'}
+                Yeni taranan formların detayları burada görünecektir.
+              </Text>
+            </View>
+          ) : (
+            evaluation.map(item => (
               <View key={item.qNo} style={styles.questionCard}>
-                {/* Question number and status */}
                 <View style={[
                   styles.questionHeader,
                   {
@@ -141,27 +153,21 @@ export const ResultDetailScreen = ({ route, navigation }: Props) => {
                   },
                 ]}>
                   <Text style={styles.qNoText}>Soru {item.qNo}</Text>
-                  {(() => { const SI = StatusIconMap[item.status as keyof typeof StatusIconMap]; return <SI size={20} color={statusColors[item.status]} />; })()}
+                  {(() => {
+                    const SI = StatusIconMap[item.status as keyof typeof StatusIconMap];
+                    return <SI size={20} color={statusColors[item.status]} />;
+                  })()}
                 </View>
 
-                {/* Answer Key Row */}
                 <View style={styles.answerRow}>
                   <Text style={styles.answerLabel}>Doğru Cevap:</Text>
                   <View style={styles.bubbleRow}>
                     {CHOICE_LABELS.map(ch => (
                       <View
                         key={ch}
-                        style={[
-                          styles.choiceBubble,
-                          ch === item.correctAns && styles.choiceBubbleCorrect,
-                        ]}
+                        style={[styles.choiceBubble, ch === item.correctAns && styles.choiceBubbleCorrect]}
                       >
-                        <Text
-                          style={[
-                            styles.choiceBubbleText,
-                            ch === item.correctAns && styles.choiceBubbleTextActive,
-                          ]}
-                        >
+                        <Text style={[styles.choiceBubbleText, ch === item.correctAns && styles.choiceBubbleTextActive]}>
                           {ch}
                         </Text>
                       </View>
@@ -169,7 +175,6 @@ export const ResultDetailScreen = ({ route, navigation }: Props) => {
                   </View>
                 </View>
 
-                {/* Student Answer Row */}
                 <View style={styles.answerRow}>
                   <Text style={styles.answerLabel}>Öğrenci:</Text>
                   <View style={styles.bubbleRow}>
@@ -193,12 +198,10 @@ export const ResultDetailScreen = ({ route, navigation }: Props) => {
                             ch === item.userAns && item.status === 'wrong' && styles.choiceBubbleWrong,
                           ]}
                         >
-                          <Text
-                            style={[
-                              styles.choiceBubbleText,
-                              ch === item.userAns && (item.status === 'correct' || item.status === 'wrong') && styles.choiceBubbleTextActive,
-                            ]}
-                          >
+                          <Text style={[
+                            styles.choiceBubbleText,
+                            ch === item.userAns && (item.status === 'correct' || item.status === 'wrong') && styles.choiceBubbleTextActive,
+                          ]}>
                             {ch}
                           </Text>
                         </View>
@@ -207,7 +210,6 @@ export const ResultDetailScreen = ({ route, navigation }: Props) => {
                   </View>
                 </View>
 
-                {/* Explanation for multiple marks */}
                 {item.explanation && (
                   <View style={styles.explanationRow}>
                     <Info size={14} color="#92400E" style={{ marginRight: 6, marginTop: 1 }} />
@@ -215,10 +217,28 @@ export const ResultDetailScreen = ({ route, navigation }: Props) => {
                   </View>
                 )}
               </View>
-            ))}
-          </>
-        )}
-      </View>
+            ))
+          )}
+        </View>
+      ) : (
+        /* Form Görseli */
+        <View style={styles.formCard}>
+          {result.formImagePath ? (
+            <Image
+              source={{ uri: `file://${result.formImagePath}` }}
+              style={styles.formImage}
+              resizeMode="contain"
+            />
+          ) : (
+            <View style={styles.noImageBox}>
+              <Text style={styles.noImageText}>
+                Form görseli bulunamadı.{'\n'}
+                Bu sonuç eski bir taramaya ait olabilir.
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
     </ScrollView>
   );
 };
@@ -231,7 +251,7 @@ const styles = StyleSheet.create({
   backBtn: { backgroundColor: '#f4511e', padding: 12, borderRadius: 8, marginTop: 12 },
   backBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
 
-  // Info Card
+  // Bilgi kartı
   infoCard: {
     backgroundColor: '#fff',
     margin: 16,
@@ -250,7 +270,30 @@ const styles = StyleSheet.create({
   scoreValue: { fontSize: 20, fontWeight: 'bold' },
   scoreLabel: { fontSize: 11, color: '#6b7280', marginTop: 2 },
 
-  // Table Card
+  // Tab bar
+  tabBar: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginTop: 16,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 9,
+  },
+  tabActive: { backgroundColor: '#f4511e' },
+  tabText: { fontSize: 14, fontWeight: '600', color: '#6b7280' },
+  tabTextActive: { color: '#fff' },
+
+  // Cevap tablosu kartı
   tableCard: {
     backgroundColor: '#fff',
     margin: 16,
@@ -261,23 +304,12 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: 12,
-  },
+  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937', marginBottom: 12 },
 
-  // No data
-  noDataBox: {
-    backgroundColor: '#f9fafb',
-    padding: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
+  noDataBox: { backgroundColor: '#f9fafb', padding: 20, borderRadius: 10, alignItems: 'center' },
   noDataText: { fontSize: 14, color: '#6b7280', textAlign: 'center', lineHeight: 22 },
 
-  // Question cards
+  // Soru kartları
   questionCard: {
     marginBottom: 12,
     borderRadius: 10,
@@ -295,7 +327,6 @@ const styles = StyleSheet.create({
   },
   qNoText: { fontSize: 15, fontWeight: 'bold', color: '#374151' },
 
-  // Answer rows
   answerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -307,7 +338,6 @@ const styles = StyleSheet.create({
   answerLabel: { width: 95, fontSize: 13, color: '#6b7280', fontWeight: '600' },
   bubbleRow: { flexDirection: 'row', gap: 6, flex: 1 },
 
-  // Choice bubbles
   choiceBubble: {
     width: 30,
     height: 30,
@@ -324,11 +354,9 @@ const styles = StyleSheet.create({
   choiceBubbleWrong: { backgroundColor: '#dc2626', borderColor: '#dc2626' },
   choiceBubbleMultiple: { backgroundColor: '#fbbf24', borderColor: '#d97706' },
   choiceBubbleTextMultiple: { color: '#78350f' },
-
   multipleRow: { flexDirection: 'row', gap: 6 },
   blankText: { fontSize: 13, color: '#9ca3af', fontStyle: 'italic' },
 
-  // Explanation
   explanationRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -339,4 +367,23 @@ const styles = StyleSheet.create({
     borderTopColor: '#FEF3C7',
   },
   explanationText: { flex: 1, fontSize: 12, color: '#92400E', lineHeight: 18 },
+
+  // Form görseli kartı
+  formCard: {
+    margin: 16,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  formImage: {
+    width: SCREEN_WIDTH - 32,
+    // Form oranı 1000×1400 → 0.714
+    height: (SCREEN_WIDTH - 32) / 0.714,
+  },
+  noImageBox: { padding: 40, alignItems: 'center' },
+  noImageText: { fontSize: 14, color: '#9ca3af', textAlign: 'center', lineHeight: 22 },
 });
